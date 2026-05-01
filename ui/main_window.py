@@ -20,19 +20,25 @@ class NavButton(QWidget):
     def __init__(self, label: str, icon_name: str, icon_color: str,
                  on_click, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self._on_click = on_click
         self._active = False
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedHeight(36)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 10, 0)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 10, 0)
+        layout.setSpacing(12)
+
+        # Active indicator (blue pill)
+        self._indicator = QFrame()
+        self._indicator.setFixedSize(3, 16)
+        self._indicator.setStyleSheet("background-color: transparent; border-radius: 1.5px;")
 
         self._icon_lbl = QLabel()
-        self._icon_lbl.setFixedSize(18, 18)
-        self._active_icon   = qta.icon(icon_name, color="#ffffff").pixmap(QSize(16, 16))
-        self._inactive_icon = qta.icon(icon_name, color="#404040").pixmap(QSize(16, 16))
+        self._icon_lbl.setFixedSize(16, 16)
+        self._active_icon   = qta.icon(icon_name, color=icon_color).pixmap(QSize(16, 16))
+        self._inactive_icon = qta.icon(icon_name, color="#1a1a1a").pixmap(QSize(16, 16))
         self._icon_lbl.setPixmap(self._inactive_icon)
         self._icon_lbl.setAlignment(Qt.AlignCenter)
 
@@ -40,6 +46,8 @@ class NavButton(QWidget):
         self._text_lbl.setFont(QFont("Segoe UI Variable Text", 10))
         self._text_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
+        layout.addWidget(self._indicator, 0, Qt.AlignVCenter)
+        layout.addSpacing(2)
         layout.addWidget(self._icon_lbl)
         layout.addWidget(self._text_lbl)
         self._apply(False)
@@ -51,13 +59,13 @@ class NavButton(QWidget):
 
     def _apply(self, active: bool):
         if active:
-            self.setStyleSheet(
-                "NavButton { background-color: #0078d4; border-radius: 6px; }"
-            )
+            self.setStyleSheet("NavButton { background-color: #ebebeb; border-radius: 4px; }")
+            self._indicator.setStyleSheet("background-color: #0078d4; border-radius: 1.5px;")
             self._icon_lbl.setPixmap(self._active_icon)
-            self._text_lbl.setStyleSheet("color: #ffffff; font-weight: 600; background: transparent;")
+            self._text_lbl.setStyleSheet("color: #1a1a1a; font-weight: 600; background: transparent;")
         else:
-            self.setStyleSheet("NavButton { background-color: transparent; border-radius: 6px; }")
+            self.setStyleSheet("NavButton { background-color: transparent; border-radius: 4px; }")
+            self._indicator.setStyleSheet("background-color: transparent;")
             self._icon_lbl.setPixmap(self._inactive_icon)
             self._text_lbl.setStyleSheet("color: #1a1a1a; font-weight: 400; background: transparent;")
 
@@ -67,10 +75,11 @@ class NavButton(QWidget):
 
     def enterEvent(self, _):
         if not self._active:
-            self.setStyleSheet("NavButton { background-color: rgba(0,0,0,0.06); border-radius: 6px; }")
+            self.setStyleSheet("NavButton { background-color: #f0f0f0; border-radius: 4px; }")
 
     def leaveEvent(self, _):
         self._apply(self._active)
+
 
 
 def _h_sep() -> QFrame:

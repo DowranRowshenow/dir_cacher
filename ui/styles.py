@@ -3,7 +3,6 @@ STYLESHEET = """
     font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
     font-size: 14px;
     color: #1a1a1a;
-    box-sizing: border-box;
 }
 
 QMainWindow {

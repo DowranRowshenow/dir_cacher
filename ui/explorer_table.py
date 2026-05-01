@@ -1,12 +1,14 @@
 import os
 import datetime
+import html
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QAbstractItemView, QMenu, QApplication, QFrame
+    QAbstractItemView, QMenu, QApplication, QFrame,
+    QStyledItemDelegate, QStyle, QStyleOptionViewItem
 )
 from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QColor, QFont, QCursor
+from PySide6.QtGui import QColor, QFont, QCursor, QTextDocument, QAbstractTextDocumentLayout
 import qtawesome as qta
 
 # ── Extension → icon map ──────────────────────────────────
@@ -50,9 +52,85 @@ def _icon(name: str, color: str, sz: int = 16):
     return _ICON_CACHE[key]
 
 
+# ── Search Highlight Delegate ─────────────────────────────
+class HighlightDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.query = ""
+
+    def set_query(self, query: str):
+        self.query = query.lower()
+
+    def paint(self, painter, option, index):
+        if not self.query or index.column() != 0:
+            super().paint(painter, option, index)
+            return
+
+        text = index.data(Qt.DisplayRole)
+        if not text:
+            super().paint(painter, option, index)
+            return
+
+        idx = text.lower().find(self.query)
+        if idx == -1:
+            super().paint(painter, option, index)
+            return
+
+        # Prepare base style (background, icon, selection state)
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        
+        # Clear text so drawControl only paints icon/bg
+        opt.text = ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+
+        # Build rich text HTML
+        start = html.escape(text[:idx])
+        match = html.escape(text[idx:idx+len(self.query)])
+        end = html.escape(text[idx+len(self.query):])
+        
+        html_str = f"<div style='white-space:nowrap;'>{start}<span style='background-color: #ffe8a1; color: #000000;'>{match}</span>{end}</div>"
+        
+        doc = QTextDocument()
+        doc.setDefaultFont(opt.font)
+        doc.setHtml(html_str)
+
+        # Find text bounding rect
+        text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, opt, opt.widget)
+        
+        painter.save()
+        painter.translate(text_rect.topLeft())
+        painter.setClipRect(text_rect.translated(-text_rect.topLeft()))
+        
+        ctx = QAbstractTextDocumentLayout.PaintContext()
+        ctx.palette = opt.palette
+        
+        # Center vertically
+        y_offset = (text_rect.height() - doc.size().height()) / 2
+        painter.translate(0, max(0, y_offset))
+        
+        doc.documentLayout().draw(painter, ctx)
+        painter.restore()
+
+
+# ── Numeric Sorting Table Item ────────────────────────────
+class NumericItem(QTableWidgetItem):
+    def __init__(self, display_str: str, sort_value):
+        super().__init__(display_str)
+        self.setData(Qt.UserRole + 1, sort_value)
+
+    def __lt__(self, other):
+        my_val = self.data(Qt.UserRole + 1)
+        other_val = other.data(Qt.UserRole + 1)
+        if my_val is None or other_val is None:
+            return super().__lt__(other)
+        return my_val < other_val
+
+
 # ── Breadcrumb bar ────────────────────────────────────────
 class BreadcrumbBar(QWidget):
-    navigate_to = Signal(str)   # emits a full path when a crumb is clicked
+    navigate_to = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -63,29 +141,38 @@ class BreadcrumbBar(QWidget):
         self._layout.setSpacing(0)
         self._path = ""
 
-    def set_path(self, path: str, root_label: str = ""):
+    def set_path(self, path: str, root_label: str = "", root_path: str = ""):
         self._path = path
-        # Clear old crumbs
         while self._layout.count():
             item = self._layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        # Build breadcrumb parts
         parts = []
         if root_label:
-            parts.append((root_label, None))   # virtual root — no navigation
+            parts.append((root_label, root_path))
 
-        # Split actual path into parts relative to display
-        norm = path.replace("\\", "/")
-        segments = norm.rstrip("/").split("/")
-        accumulated = ""
-        for i, seg in enumerate(segments):
-            if not seg:
-                accumulated = "/"
-                continue
-            accumulated = accumulated.rstrip("/") + "/" + seg if accumulated else seg
-            parts.append((seg, accumulated.replace("/", os.sep)))
+        # Normalize slashes for comparison
+        norm_path = path.replace("\\", "/")
+        norm_root = root_path.replace("\\", "/")
+
+        rel_path = norm_path
+        if norm_root and norm_path.startswith(norm_root):
+            rel_path = norm_path[len(norm_root):]
+
+        norm = rel_path.strip("/")
+        if norm:
+            segments = norm.split("/")
+            current_path = path
+            path_segments = []
+            for seg in reversed(segments):
+                path_segments.append((seg, current_path))
+                # Find the segment at the end and slice it off
+                idx = current_path.rfind(seg)
+                if idx >= 0:
+                    current_path = current_path[:idx].rstrip("\\/")
+            
+            parts.extend(reversed(path_segments))
 
         for i, (label, nav_path) in enumerate(parts):
             if i > 0:
@@ -120,8 +207,8 @@ class BreadcrumbBar(QWidget):
 
 # ── Explorer Table ────────────────────────────────────────
 class ExplorerTable(QWidget):
-    folder_opened    = Signal(str)   # path of folder double-clicked
-    status_updated   = Signal(str, str)  # status text, count text
+    folder_opened    = Signal(str)
+    status_updated   = Signal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -129,7 +216,6 @@ class ExplorerTable(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        # Toolbar: back button + breadcrumb
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
 
@@ -169,6 +255,16 @@ class ExplorerTable(QWidget):
         hh.resizeSection(2, 86)
         hh.resizeSection(3, 160)
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        hh.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f9f9f9;
+                border: none;
+                border-bottom: 1px solid #e5e5e5;
+                border-right: 1px solid #e5e5e5;
+                padding-left: 6px;
+                font-weight: 600;
+            }
+        """)
 
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -183,30 +279,43 @@ class ExplorerTable(QWidget):
         self._table.doubleClicked.connect(self._on_double_click)
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._context_menu)
+        
+        # Enable Sorting
+        self._table.setSortingEnabled(True)
+
+        # Highlight delegate
+        self._highlight_delegate = HighlightDelegate(self._table)
+        self._table.setItemDelegate(self._highlight_delegate)
+
         layout.addWidget(self._table)
 
         # Navigation state
         self._history: list[str] = []
         self._current_path: str = ""
         self._root_label: str = ""
-        self._get_children_fn = None  # injected by main
+        self._root_path: str = ""
+        self._get_children_fn = None
 
     # ── Public API ─────────────────────────────────────────
     def set_data_source(self, get_children_fn):
-        """Inject the DB lookup function."""
         self._get_children_fn = get_children_fn
 
-    def navigate_to(self, path: str, root_label: str = "", push_history: bool = True):
+    def navigate_to(self, path: str, root_label: str = "", root_path: str = "", push_history: bool = True):
         if not self._get_children_fn:
             return
         if push_history and self._current_path:
             self._history.append(self._current_path)
+            
         self._current_path = path
         self._root_label = root_label or self._root_label
+        self._root_path = root_path or self._root_path
+        
         self._back_btn.setEnabled(bool(self._history))
         items = self._get_children_fn(path)
+        self._highlight_delegate.set_query("")
         self._load_items(items)
-        self._breadcrumb.set_path(path, self._root_label)
+        self._breadcrumb.set_path(path, self._root_label, self._root_path)
+        
         n = len(items)
         self.status_updated.emit(
             f"{'1 item' if n == 1 else f'{n:,} items'} in this folder.",
@@ -214,17 +323,19 @@ class ExplorerTable(QWidget):
         )
 
     def show_virtual_roots(self, roots: list[dict], label: str = ""):
-        """Show a list of virtual root entries (multiple scan dirs)."""
         self._history.clear()
         self._current_path = ""
         self._root_label = label
+        self._root_path = ""
         self._back_btn.setEnabled(False)
+        self._highlight_delegate.set_query("")
         self._load_items(roots)
         self._breadcrumb.set_path("", "")
         n = len(roots)
         self.status_updated.emit(f"{n} root{'s' if n != 1 else ''} configured.", f"{n} roots")
 
     def set_search_results(self, items: list[dict], query: str):
+        self._highlight_delegate.set_query(query)
         self._load_items(items)
         n = len(items)
         self._breadcrumb.set_path("", f'Search: "{query}"')
@@ -251,14 +362,25 @@ class ExplorerTable(QWidget):
         if data and data.get("is_dir"):
             path = data["path"]
             self._history.append(self._current_path)
-            self.navigate_to(path, push_history=False)
+            
+            if not self._current_path:
+                # Coming from virtual root
+                self.navigate_to(path, root_label=item.text(), root_path=path, push_history=False)
+            else:
+                self.navigate_to(path, push_history=False)
 
     # ── Rendering ──────────────────────────────────────────
     def _load_items(self, items: list[dict]):
         tbl = self._table
         tbl.setUpdatesEnabled(False)
         tbl.blockSignals(True)
+        tbl.setSortingEnabled(False)  # disable during insert
         tbl.setRowCount(0)
+
+        # Folder first sorting
+        def sort_key(x):
+            return (0 if x.get("is_dir") else 1, x.get("name", "").lower())
+        items = sorted(items, key=sort_key)
 
         for item in items:
             row = tbl.rowCount()
@@ -268,7 +390,7 @@ class ExplorerTable(QWidget):
             path   = item.get("path", "")
             ext    = os.path.splitext(name)[1].lower()
 
-            # Col 0 — Name + icon
+            # Col 0 — Name
             name_item = QTableWidgetItem(name)
             name_item.setData(Qt.UserRole, {"path": path, "is_dir": is_dir})
             if is_dir:
@@ -285,24 +407,25 @@ class ExplorerTable(QWidget):
             t.setForeground(QColor("#888888"))
             tbl.setItem(row, 1, t)
 
-            # Col 2 — Size
+            # Col 2 — Size (Numeric Sortable)
             size_val  = item.get("size", 0)
             size_str  = "" if is_dir else self._fmt_size(size_val)
-            s = QTableWidgetItem(size_str)
+            s = NumericItem(size_str, size_val if not is_dir else -1)
             s.setForeground(QColor("#888888"))
             s.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             tbl.setItem(row, 2, s)
 
-            # Col 3 — Date
+            # Col 3 — Date (Numeric Sortable)
             mtime = item.get("mtime", 0)
             try:
                 dt = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d  %H:%M")
             except Exception:
                 dt = ""
-            d = QTableWidgetItem(dt)
+            d = NumericItem(dt, mtime)
             d.setForeground(QColor("#888888"))
             tbl.setItem(row, 3, d)
 
+        tbl.setSortingEnabled(True)
         tbl.blockSignals(False)
         tbl.setUpdatesEnabled(True)
 
