@@ -324,6 +324,10 @@ class ExplorerTable(QWidget):
         self._get_children_fn = None
 
     # ── Public API ─────────────────────────────────────────
+    def clear_history(self):
+        self._history = []
+        self._back_btn.setEnabled(False)
+
     def set_data_source(self, get_children_fn):
         self._get_children_fn = get_children_fn
 

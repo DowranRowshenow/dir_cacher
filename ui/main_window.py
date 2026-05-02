@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
         bot_layout.setContentsMargins(6, 6, 6, 8)
         bot_layout.setSpacing(2)
 
-        version_lbl = QLabel("DirCache v1.0.5")
+        version_lbl = QLabel("DirCache v1.0.0 Stable")
         version_lbl.setStyleSheet("color: #aaaaaa; font-size: 11px; padding-left: 14px; background: transparent; border: none;")
         bot_layout.addWidget(version_lbl)
 

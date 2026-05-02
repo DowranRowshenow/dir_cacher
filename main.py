@@ -15,7 +15,7 @@ class PathLogApp:
         self.window = MainWindow()
         from PySide6.QtGui import QIcon
         self.window.setWindowIcon(QIcon("logo.png"))
-        self.window.setWindowTitle("DirCache Explorer")
+        self.window.setWindowTitle("DirCache Explorer v1.0.0 Stable")
 
         self.local_db: Database | None = None
         self.shared_db: Database | None = None
@@ -41,8 +41,10 @@ class PathLogApp:
     def _get_db_for_path(self, path: str) -> Database | None:
         if not path:
             return None
-        if path.startswith("\\\\") or path.startswith("//"):
+        # Use shared_db if it's a network path AND shared_db exists
+        if (path.startswith("\\\\") or path.startswith("//")) and self.shared_db:
             return self.shared_db
+        # Fallback to local_db for everything else
         return self.local_db
 
     def _get_children(self, path: str) -> list[dict]:
@@ -94,7 +96,7 @@ class PathLogApp:
         except Exception:
             pass
         self._init_dbs(self._get_local_db_path(), settings["shared_cache_path"])
-        self.refresh_explorer()
+        self.refresh_explorer(force_home=True)
 
     def _init_dbs(self, local_path: str, shared_path: str):
         if self.local_db: self.local_db.close()
@@ -133,9 +135,6 @@ class PathLogApp:
         path = dirs[0]
         db = self._get_db_for_path(path)
         if not db:
-            if path.startswith("\\\\") or path.startswith("//"):
-                QMessageBox.warning(self.window, "Shared Cache Missing", 
-                    f"To index network path '{path}', please configure 'Shared Network Storage' in Settings.")
             self._scan_sequential(dirs[1:])
             return
             
@@ -197,13 +196,24 @@ class PathLogApp:
         if not dirs:
             self.window.set_status("No directories configured — go to Settings.")
             self.window.item_count_label.setText("")
+            self.window.table.show_virtual_roots([], label="Indexed Locations")
             return
 
-        # If we are already in a folder, just refresh its content
+        # Check if current path is still within configured dirs
         current = self.window.table._current_path
-        if current and not force_home:
+        path_still_valid = False
+        if current:
+            for d in dirs:
+                # Path is valid if it's one of the roots or a child of one
+                if current == d or current.startswith(d + os.sep) or current.startswith(d + "/"):
+                    path_still_valid = True
+                    break
+        
+        if current and path_still_valid and not force_home:
             self.window.table.navigate_to(current, push_history=False)
             return
+
+        self.window.table.clear_history() # Reset if we go home
 
         if len(dirs) == 1 and not force_home:
             # Single root → navigate straight into it
