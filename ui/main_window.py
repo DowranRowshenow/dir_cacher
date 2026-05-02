@@ -345,7 +345,7 @@ class MainWindow(QMainWindow):
             QCheckBox { font-size: 11px; color: #6e6e6e; background: transparent; padding: 0 4px; }
             QCheckBox::indicator { width: 14px; height: 14px; }
         """)
-        self.search_shared_cb.setToolTip("Search in shared network cache too")
+        self.search_shared_cb.setToolTip("Expand search to all configured scan folders + shared network cache")
         search_row.addWidget(self.search_shared_cb)
 
         self.target_scan_btn = QPushButton()
@@ -586,7 +586,7 @@ class MainWindow(QMainWindow):
         card = "#2d2d2d" if is_dark else "#fafafa"
         
         tooltip_bg = "#2d2d2d" if is_dark else "#ffffff"
-        tooltip_fg = "#ffffff" if is_dark else "#000000"
+        tooltip_fg = "#ffffff" if is_dark else "#1a1a1a"
         tooltip_border = "#444444" if is_dark else "#cccccc"
         
         scroll_bg = "transparent"
@@ -594,6 +594,11 @@ class MainWindow(QMainWindow):
         scroll_hover = "#777777" if is_dark else "#aaaaaa"
         
         from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QColor as _QColor, QPalette as _QPalette
+        _palette = QApplication.instance().palette()
+        _palette.setColor(_QPalette.ToolTipBase, _QColor(tooltip_bg))
+        _palette.setColor(_QPalette.ToolTipText, _QColor(tooltip_fg))
+        QApplication.instance().setPalette(_palette)
         QApplication.instance().setStyleSheet(f"""
             QToolTip {{
                 background-color: {tooltip_bg};

@@ -99,13 +99,31 @@ class PathLogApp:
         self.refresh_explorer()
 
     # ── Data source (passed into ExplorerTable) ───────────
+    def _is_network_path(self, path: str) -> bool:
+        """Returns True if path lives on a network share, not a local physical drive."""
+        if not path:
+            return False
+        # UNC paths (\\server\... or //server/...)
+        if path.startswith("\\\\") or path.startswith("//"):
+            return True
+        # On Windows, check the drive type via Win32 API
+        if sys.platform == "win32" and len(path) >= 2 and path[1] == ":":
+            try:
+                import ctypes
+                DRIVE_REMOTE = 4
+                drive = path[:3].replace("/", "\\")
+                drive_type = ctypes.windll.kernel32.GetDriveTypeW(drive)
+                return drive_type == DRIVE_REMOTE
+            except Exception:
+                pass
+        return False
+
     def _get_db_for_path(self, path: str) -> Database | None:
         if not path:
             return None
-        # Use shared_db if it's a network path AND shared_db exists
-        if (path.startswith("\\\\") or path.startswith("//")) and self.shared_db:
+        # Network paths always go to shared_db (never local_db)
+        if self._is_network_path(path):
             return self.shared_db
-        # Fallback to local_db for everything else
         return self.local_db
 
     def _get_children(self, path: str) -> list[dict]:
@@ -151,6 +169,13 @@ class PathLogApp:
         dir_path = os.path.join(appdata, "DirCache")
         os.makedirs(dir_path, exist_ok=True)
         return os.path.join(dir_path, "local_cache.db")
+
+    def _get_network_db_path(self):
+        """Fallback path for network path indexes when no shared_db is configured."""
+        appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+        dir_path = os.path.join(appdata, "DirCache")
+        os.makedirs(dir_path, exist_ok=True)
+        return os.path.join(dir_path, "network_cache.db")
 
     # ── Config ────────────────────────────────────────────
     def load_config(self):
@@ -216,12 +241,18 @@ class PathLogApp:
         if self.local_db: self.local_db.close()
         if self.shared_db: self.shared_db.close()
         
+        # local_db: ONLY for physically local drives
         self.local_db = Database(local_path) if local_path else None
-        self.shared_db = Database(shared_path) if shared_path else None
         
-        # Scanner needs one DB as primary, but we'll re-init it per-scan
-        # so we'll just keep a placeholder or re-assign
-        self.scanner = Scanner(self.local_db or self.shared_db) if (self.local_db or self.shared_db) else None
+        # shared_db: ONLY for network paths
+        # If user configured a shared SQLite path → use it (multi-user collaboration)
+        # Otherwise → private local fallback (network_cache.db, separate from local_cache.db)
+        if shared_path:
+            self.shared_db = Database(shared_path)
+        else:
+            self.shared_db = Database(self._get_network_db_path())
+
+        self.scanner = None  # Created fresh per-scan via _scan_sequential
 
     # ── Scan ──────────────────────────────────────────────
     def start_full_scan(self):
@@ -241,36 +272,38 @@ class PathLogApp:
         # or just run them one by one.
         self._scan_sequential(dirs)
 
-    def _scan_sequential(self, dirs: list[str]):
+    def _scan_sequential(self, dirs: list[str], total_count: int = 0):
         if not dirs:
-            self.on_scan_finished(0) # Not accurate count but stops UI
+            self.on_scan_finished(total_count)
             return
         
         path = dirs[0]
+        remaining = dirs[1:]
         db = self._get_db_for_path(path)
         if not db:
-            self._scan_sequential(dirs[1:])
+            self._scan_sequential(remaining, total_count)
             return
-            
-        self.scanner.db = db # Point to correct DB
+
+        # Re-init scanner pointing at the correct DB
+        self.scanner = Scanner(db)
         self.scanner.start_scan(
             [path],
             progress_callback=lambda p: self.window.set_status(f"Scanning: {p}"),
-            finished_callback=lambda _: self._scan_sequential(dirs[1:]),
+            finished_callback=lambda count: self._scan_sequential(remaining, total_count + count),
             error_callback=self.on_scan_error,
         )
 
     def start_targeted_scan(self, path: str):
         db = self._get_db_for_path(path)
-        if not path or not self.scanner or not db:
+        if not path or not db:
             return
         # Silent scan: only show the slim progress bar on the explorer page
         self.window.progress_bar.setVisible(True)
         self.window.target_scan_btn.setEnabled(False)
-        self.scanner.db = db # Point to correct DB
+        self.scanner = Scanner(db)  # Fresh scanner pointing at correct DB
         self.scanner.start_scan(
             [path],
-            progress_callback=None, 
+            progress_callback=None,
             finished_callback=self.on_targeted_scan_finished,
             error_callback=self.on_scan_error,
         )
@@ -362,23 +395,47 @@ class PathLogApp:
             return
         if len(text) < 2:
             return
-        
-        # Scoped search if we are in a directory
+        # Always search recursively within current dir
         current_path = self.window.table._current_path
+        is_global = self.window.search_shared_cb.isChecked()
+        settings = self.window.settings_panel.get_settings()
+        scan_dirs = [d.replace("\\", "/") for d in settings.get("scan_dirs", []) if d]
         results = []
+        seen_paths = set()
+
+        def _add_results(new_results):
+            for r in new_results:
+                if r["path"] not in seen_paths:
+                    seen_paths.add(r["path"])
+                    results.append(r)
+
         if current_path:
+            # Scoped: search recursively inside the current directory
             db = self._get_db_for_path(current_path)
             if db:
-                results = db.search(text, parent_prefix=current_path)
+                _add_results(db.search(text, parent_prefix=current_path))
+
+            # Global: also search every other configured scan dir via correct routing
+            if is_global:
+                norm_current = current_path.replace("\\", "/")
+                for d in scan_dirs:
+                    d_norm = d.rstrip("/")
+                    if d_norm == norm_current.rstrip("/") or norm_current.startswith(d_norm + "/"):
+                        continue  # already covered by current_path scope
+                    db = self._get_db_for_path(d)
+                    if db:
+                        _add_results(db.search(text, parent_prefix=d))
         else:
-            # Global search
-            if self.local_db:
-                results.extend(self.local_db.search(text))
-            
-            # Search shared ONLY if toggle is on
-            if self.window.search_shared_cb.isChecked() and self.shared_db:
-                results.extend(self.shared_db.search(text))
-        
+            # Home view: search all configured dirs, each routed to correct DB
+            for d in scan_dirs:
+                db = self._get_db_for_path(d)
+                if db:
+                    _add_results(db.search(text, parent_prefix=d))
+
+            # Global: also search the whole network DB without prefix
+            if is_global and self.shared_db:
+                _add_results(self.shared_db.search(text))
+
         self.window.table.set_search_results(results, text)
 
     def open_cache_folder(self):
@@ -388,13 +445,15 @@ class PathLogApp:
             os.startfile(dir_path)
 
     def clear_cache(self):
-        ret = QMessageBox.question(
-            self.window, "Clear Cache",
-            "This will delete all locally indexed file metadata. Continue?",
-            QMessageBox.Yes | QMessageBox.No
+        ret = QMessageBox.warning(
+            self.window, "Clear Local Cache",
+            "⚠️  This will permanently delete all locally indexed file metadata.\n"
+            "Network path indexes (network_cache.db or shared DB) are NOT affected.\n\n"
+            "This action cannot be undone. Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No  # Default to No for safety
         )
         if ret == QMessageBox.Yes:
-            # Close connection to allow file deletion
             if self.local_db:
                 self.local_db.close()
                 self.local_db = None
@@ -404,12 +463,13 @@ class PathLogApp:
                 try:
                     os.remove(path)
                 except Exception as e:
-                    QMessageBox.warning(self.window, "Error", f"Could not delete cache: {e}")
+                    QMessageBox.warning(self.window, "Error", f"Could not delete local cache: {e}")
+                    return
             
-            # Re-init empty DB
+            # Re-init fresh empty local DB (keep shared_db as-is)
             self.local_db = Database(path)
             self.refresh_explorer(force_home=True)
-            QMessageBox.information(self.window, "Done", "Local cache cleared.")
+            QMessageBox.information(self.window, "Done", "Local cache cleared successfully.\nNetwork indexes are unchanged.")
 
     def run(self):
         self.window.show()

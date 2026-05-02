@@ -58,11 +58,10 @@ class Database:
         params = [f"%{query}%"]
         
         if parent_prefix:
-            # Scoped search: match items inside parent_prefix or the prefix itself
-            # Normalize to avoid slash mismatches
+            # Normalize to forward slashes to handle both Qt (/) and Win32 (\) paths
             p = parent_prefix.replace("\\", "/").rstrip("/")
-            sql += " AND (path = ? OR path LIKE ?)"
-            params.append(parent_prefix)
+            sql += " AND (replace(path, '\\', '/') = ? OR replace(path, '\\', '/') LIKE ?)"
+            params.append(p)
             params.append(f"{p}/%")
 
         sql += " LIMIT 1000"
