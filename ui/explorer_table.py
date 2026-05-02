@@ -1,6 +1,7 @@
 import os
 import datetime
 import html
+import re
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView,
@@ -114,23 +115,51 @@ class HighlightDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+# ── Natural Sorting helper ────────────────────────────────
+def natural_sort_key(s: str):
+    return [int(text) if text.isdigit() else text.lower()
+            for text in re.split('([0-9]+)', s)]
+
+
 # ── Numeric Sorting Table Item ────────────────────────────
-class NumericItem(QTableWidgetItem):
-    def __init__(self, display_str: str, sort_value):
-        super().__init__(display_str)
-        self.setData(Qt.UserRole + 1, sort_value)
+class SortableItem(QTableWidgetItem):
+    def __init__(self, text: str, is_dir: bool, sort_value=None):
+        super().__init__(text)
+        self.is_dir = is_dir
+        self.sort_value = sort_value if sort_value is not None else text
 
     def __lt__(self, other):
-        my_val = self.data(Qt.UserRole + 1)
-        other_val = other.data(Qt.UserRole + 1)
-        if my_val is None or other_val is None:
+        if not isinstance(other, SortableItem):
             return super().__lt__(other)
-        return my_val < other_val
+        
+        # Folders always group together at the top (ascending) or bottom (descending)
+        # But we want them together. 
+        if self.is_dir != other.is_dir:
+            # If we return self.is_dir, then dir (True) < file (False) is False.
+            # So file < dir? No, True is 1, False is 0. 0 < 1.
+            # So file < dir.
+            # We want dir < file. So return other.is_dir? 
+            # If self is dir (True) and other is file (False), return True.
+            return self.is_dir > other.is_dir
+
+        # Same type: use natural sort for strings, direct compare for others
+        s_val = self.sort_value
+        o_val = other.sort_value
+        
+        if isinstance(s_val, str) and isinstance(o_val, str):
+            return natural_sort_key(s_val) < natural_sort_key(o_val)
+        
+        # Handle cases where sort_value might be None or different types
+        try:
+            return s_val < o_val
+        except TypeError:
+            return str(s_val) < str(o_val)
 
 
 # ── Breadcrumb bar ────────────────────────────────────────
 class BreadcrumbBar(QWidget):
     navigate_to = Signal(str)
+    home_clicked = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -148,18 +177,41 @@ class BreadcrumbBar(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+        # Add Home icon button
+        home_btn = QPushButton()
+        home_btn.setIcon(qta.icon("fa5s.home", color="#0078d4"))
+        home_btn.setIconSize(QSize(14, 14))
+        home_btn.setFixedSize(24, 24)
+        home_btn.setFlat(True)
+        home_btn.setCursor(Qt.PointingHandCursor)
+        home_btn.clicked.connect(self.home_clicked.emit)
+        home_btn.setStyleSheet("QPushButton { border: none; background: transparent; padding: 0; } QPushButton:hover { background: #f0f0f0; border-radius: 4px; }")
+        self._layout.addWidget(home_btn)
+
+        if root_label or path:
+            sep = QLabel("›")
+            sep.setStyleSheet("color: #aaaaaa; font-size: 14px; padding: 0 4px;")
+            self._layout.addWidget(sep)
+
         parts = []
         if root_label:
             parts.append((root_label, root_path))
 
         # Normalize slashes for comparison
-        norm_path = path.replace("\\", "/")
-        norm_root = root_path.replace("\\", "/")
+        p = path.replace("\\", "/")
+        r = root_path.replace("\\", "/")
+        
+        # Ensure we don't have trailing slashes interfering
+        norm_path = p.rstrip("/")
+        norm_root = r.rstrip("/")
 
         rel_path = norm_path
-        if norm_root and norm_path.startswith(norm_root):
-            rel_path = norm_path[len(norm_root):]
-
+        if norm_root:
+            if norm_path == norm_root:
+                rel_path = ""
+            elif norm_path.startswith(norm_root + "/"):
+                rel_path = norm_path[len(norm_root):]
+        
         norm = rel_path.strip("/")
         if norm:
             segments = norm.split("/")
@@ -209,6 +261,8 @@ class BreadcrumbBar(QWidget):
 class ExplorerTable(QWidget):
     folder_opened    = Signal(str)
     status_updated   = Signal(str, str)
+    home_requested   = Signal()
+    scan_requested   = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -237,6 +291,7 @@ class ExplorerTable(QWidget):
 
         self._breadcrumb = BreadcrumbBar()
         self._breadcrumb.navigate_to.connect(self._on_breadcrumb_nav)
+        self._breadcrumb.home_clicked.connect(self.home_requested.emit)
 
         toolbar.addWidget(self._back_btn)
         toolbar.addWidget(self._breadcrumb, 1)
@@ -301,6 +356,9 @@ class ExplorerTable(QWidget):
         self._get_children_fn = get_children_fn
 
     def navigate_to(self, path: str, root_label: str = "", root_path: str = "", push_history: bool = True):
+        if not path:
+            self.home_requested.emit()
+            return
         if not self._get_children_fn:
             return
         if push_history and self._current_path:
@@ -310,7 +368,7 @@ class ExplorerTable(QWidget):
         self._root_label = root_label or self._root_label
         self._root_path = root_path or self._root_path
         
-        self._back_btn.setEnabled(bool(self._history))
+        self._back_btn.setEnabled(len(self._history) > 0)
         items = self._get_children_fn(path)
         self._highlight_delegate.set_query("")
         self._load_items(items)
@@ -322,15 +380,15 @@ class ExplorerTable(QWidget):
             f"{n:,} items"
         )
 
-    def show_virtual_roots(self, roots: list[dict], label: str = ""):
-        self._history.clear()
+    def show_virtual_roots(self, roots: list[dict], label: str = "Indexed Locations"):
+        self._history = []
         self._current_path = ""
         self._root_label = label
         self._root_path = ""
         self._back_btn.setEnabled(False)
         self._highlight_delegate.set_query("")
         self._load_items(roots)
-        self._breadcrumb.set_path("", "")
+        self._breadcrumb.set_path("", label)
         n = len(roots)
         self.status_updated.emit(f"{n} root{'s' if n != 1 else ''} configured.", f"{n} roots")
 
@@ -390,8 +448,8 @@ class ExplorerTable(QWidget):
             path   = item.get("path", "")
             ext    = os.path.splitext(name)[1].lower()
 
-            # Col 0 — Name
-            name_item = QTableWidgetItem(name)
+            # Col 0 — Name (Natural Sort + Folder Priority)
+            name_item = SortableItem(name, is_dir)
             name_item.setData(Qt.UserRole, {"path": path, "is_dir": is_dir})
             if is_dir:
                 name_item.setIcon(qta.icon("fa5s.folder", color="#f0a30a"))
@@ -403,14 +461,14 @@ class ExplorerTable(QWidget):
 
             # Col 1 — Type
             type_str = "Folder" if is_dir else (ext.upper().lstrip(".") or "File")
-            t = QTableWidgetItem(type_str)
+            t = SortableItem(type_str, is_dir)
             t.setForeground(QColor("#888888"))
             tbl.setItem(row, 1, t)
 
             # Col 2 — Size (Numeric Sortable)
             size_val  = item.get("size", 0)
             size_str  = "" if is_dir else self._fmt_size(size_val)
-            s = NumericItem(size_str, size_val if not is_dir else -1)
+            s = SortableItem(size_str, is_dir, size_val if not is_dir else -1)
             s.setForeground(QColor("#888888"))
             s.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             tbl.setItem(row, 2, s)
@@ -421,7 +479,7 @@ class ExplorerTable(QWidget):
                 dt = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d  %H:%M")
             except Exception:
                 dt = ""
-            d = NumericItem(dt, mtime)
+            d = SortableItem(dt, is_dir, mtime)
             d.setForeground(QColor("#888888"))
             tbl.setItem(row, 3, d)
 
@@ -431,13 +489,14 @@ class ExplorerTable(QWidget):
 
     # ── Context menu ───────────────────────────────────────
     def _context_menu(self, pos):
-        row = self._table.rowAt(pos.y())
-        if row < 0:
-            return
-        item = self._table.item(row, 0)
+        item = self._table.itemAt(pos)
         if not item:
             return
-        data = item.data(Qt.UserRole) or {}
+        row = item.row()
+        name_item = self._table.item(row, 0)
+        if not name_item:
+            return
+        data = name_item.data(Qt.UserRole) or {}
         path = data.get("path", "")
 
         menu = QMenu(self)
@@ -447,19 +506,41 @@ class ExplorerTable(QWidget):
                 border-radius: 8px; padding: 4px; font-size: 13px;
             }
             QMenu::item { padding: 7px 20px; border-radius: 4px; }
-            QMenu::item:selected { background: #f0f7ff; }
+            QMenu::item:selected { background: #f0f7ff; color: #1a1a1a; }
             QMenu::separator { background: #e5e5e5; height: 1px; margin: 3px 8px; }
         """)
         open_act   = menu.addAction(qta.icon("fa5s.external-link-alt", color="#1a1a1a"), "Open")
         reveal_act = menu.addAction(qta.icon("fa5s.folder-open",       color="#f0a30a"), "Show in File Explorer")
         menu.addSeparator()
         copy_act   = menu.addAction(qta.icon("fa5s.copy",  color="#888888"), "Copy Path")
+        prop_act   = menu.addAction(qta.icon("fa5s.info-circle", color="#888888"), "Properties")
 
-        action = menu.exec(QCursor.pos())
+        action = menu.exec(self._table.viewport().mapToGlobal(pos))
         if not path:
             return
         if action == copy_act:
             QApplication.clipboard().setText(path)
+        elif action == prop_act:
+            from PySide6.QtWidgets import QMessageBox
+            try:
+                st = os.stat(path)
+                created = datetime.datetime.fromtimestamp(st.st_ctime).strftime("%Y-%m-%d  %H:%M:%S")
+                modified = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d  %H:%M:%S")
+                size_str = self._fmt_size(st.st_size)
+                
+                info = [
+                    f"Name: {os.path.basename(path)}",
+                    f"Location: {os.path.dirname(path)}",
+                    f"Type: {'File folder' if os.path.isdir(path) else 'File'}",
+                    "",
+                    f"Size: {size_str} ({st.st_size:,} bytes)",
+                    "",
+                    f"Created: {created}",
+                    f"Modified: {modified}",
+                ]
+                QMessageBox.information(self, "Properties", "\n".join(info))
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not fetch properties: {e}")
         elif action == open_act:
             try:
                 os.startfile(path)

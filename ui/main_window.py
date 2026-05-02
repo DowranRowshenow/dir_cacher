@@ -47,7 +47,7 @@ class NavButton(QWidget):
         self._text_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
         layout.addWidget(self._indicator, 0, Qt.AlignVCenter)
-        layout.addSpacing(2)
+        layout.addSpacing(6) # More space after indicator for better indent
         layout.addWidget(self._icon_lbl)
         layout.addWidget(self._text_lbl)
         self._apply(False)
@@ -59,15 +59,17 @@ class NavButton(QWidget):
 
     def _apply(self, active: bool):
         if active:
-            self.setStyleSheet("NavButton { background-color: #ebebeb; border-radius: 4px; }")
-            self._indicator.setStyleSheet("background-color: #0078d4; border-radius: 1.5px;")
+            self.setStyleSheet("NavButton { background-color: #ebebeb; border-radius: 4px; border: none; }")
+            self._indicator.setStyleSheet("background-color: #0078d4; border-radius: 1.5px; border: none;")
             self._icon_lbl.setPixmap(self._active_icon)
-            self._text_lbl.setStyleSheet("color: #1a1a1a; font-weight: 600; background: transparent;")
+            self._icon_lbl.setStyleSheet("border: none; background: transparent;")
+            self._text_lbl.setStyleSheet("color: #1a1a1a; font-weight: 600; background: transparent; border: none;")
         else:
-            self.setStyleSheet("NavButton { background-color: transparent; border-radius: 4px; }")
-            self._indicator.setStyleSheet("background-color: transparent;")
+            self.setStyleSheet("NavButton { background-color: transparent; border-radius: 4px; border: none; }")
+            self._indicator.setStyleSheet("background-color: transparent; border: none;")
             self._icon_lbl.setPixmap(self._inactive_icon)
-            self._text_lbl.setStyleSheet("color: #1a1a1a; font-weight: 400; background: transparent;")
+            self._icon_lbl.setStyleSheet("border: none; background: transparent;")
+            self._text_lbl.setStyleSheet("color: #1a1a1a; font-weight: 400; background: transparent; border: none;")
 
     # ── events ─────────────────────────────────────────────
     def mousePressEvent(self, _):
@@ -93,7 +95,7 @@ def _h_sep() -> QFrame:
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text.upper())
     lbl.setFont(QFont("Segoe UI Variable Text", 8, QFont.Bold))
-    lbl.setStyleSheet("color: #888888; padding: 6px 14px 2px 14px; letter-spacing: 0.8px; background: transparent;")
+    lbl.setStyleSheet("color: #888888; padding: 6px 14px 2px 14px; letter-spacing: 0.8px; background: transparent; border: none;")
     return lbl
 
 
@@ -127,16 +129,17 @@ class MainWindow(QMainWindow):
         # App name row
         app_row = QWidget()
         app_row.setFixedHeight(52)
-        app_row.setStyleSheet("background: transparent;")
+        app_row.setStyleSheet("background: transparent; border: none;")
         ar_layout = QHBoxLayout(app_row)
         ar_layout.setContentsMargins(14, 0, 14, 0)
         ar_layout.setSpacing(10)
         app_icon_lbl = QLabel()
         app_icon_lbl.setFixedSize(20, 20)
         app_icon_lbl.setPixmap(qta.icon("fa5s.database", color="#0078d4").pixmap(QSize(18, 18)))
+        app_icon_lbl.setStyleSheet("border: none;")
         app_name_lbl = QLabel("PathLog")
         app_name_lbl.setFont(QFont("Segoe UI Variable Display", 12, QFont.Bold))
-        app_name_lbl.setStyleSheet("color: #1a1a1a; background: transparent;")
+        app_name_lbl.setStyleSheet("color: #1a1a1a; background: transparent; border: none;")
         ar_layout.addWidget(app_icon_lbl)
         ar_layout.addWidget(app_name_lbl)
         ar_layout.addStretch()
@@ -169,6 +172,11 @@ class MainWindow(QMainWindow):
         bot_layout = QVBoxLayout(bottom_pad)
         bot_layout.setContentsMargins(6, 6, 6, 8)
         bot_layout.setSpacing(2)
+
+        version_lbl = QLabel("PathLog v1.0.4")
+        version_lbl.setStyleSheet("color: #aaaaaa; font-size: 11px; padding-left: 14px; background: transparent; border: none;")
+        bot_layout.addWidget(version_lbl)
+
         sb_layout.addWidget(bottom_pad)
 
         # ── Content Stack ─────────────────────────────────
@@ -225,7 +233,10 @@ class MainWindow(QMainWindow):
 
         layout.addSpacing(20)
 
-        # Search bar
+        # Search bar row
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search indexed files…")
         self.search_bar.setClearButtonEnabled(True)
@@ -244,7 +255,25 @@ class MainWindow(QMainWindow):
                 border: 1px solid #0078d4;
             }
         """)
-        layout.addWidget(self.search_bar)
+
+        self.target_scan_btn = QPushButton()
+        self.target_scan_btn.setIcon(qta.icon("fa5s.sync", color="white"))
+        self.target_scan_btn.setIconSize(QSize(14, 14))
+        self.target_scan_btn.setFixedSize(34, 34)
+        self.target_scan_btn.setToolTip("Index current folder recursively")
+        self.target_scan_btn.setEnabled(False)
+        self.target_scan_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d4; border: none; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #0067b8; }
+            QPushButton:pressed { background-color: #005a9e; }
+            QPushButton:disabled { background-color: #bad6ef; }
+        """)
+
+        search_row.addWidget(self.search_bar, 1)
+        search_row.addWidget(self.target_scan_btn)
+        layout.addLayout(search_row)
         layout.addSpacing(10)
 
         # Explorer table (contains back button + breadcrumb + table internally)
@@ -297,22 +326,25 @@ class MainWindow(QMainWindow):
         # Info banner
         banner = QWidget()
         banner.setStyleSheet("""
-            background-color: #fffce6;
-            border: 1px solid #f0e68c;
-            border-radius: 6px;
+            QWidget {
+                background-color: #eff6fc;
+                border: 1px solid #cce4f7;
+                border-radius: 6px;
+            }
+            QLabel { border: none; background: transparent; }
         """)
         banner_layout = QHBoxLayout(banner)
         banner_layout.setContentsMargins(14, 10, 14, 10)
         banner_layout.setSpacing(10)
         b_icon = QLabel()
-        b_icon.setPixmap(qta.icon("fa5s.info-circle", color="#8a6914").pixmap(QSize(16, 16)))
+        b_icon.setPixmap(qta.icon("fa5s.info-circle", color="#0078d4").pixmap(QSize(16, 16)))
         b_text = QLabel(
             "Scanning runs entirely in the background using a worker thread. "
             "The UI stays responsive. You can browse the Explorer while indexing."
         )
         b_text.setTextFormat(Qt.PlainText)
         b_text.setWordWrap(True)
-        b_text.setStyleSheet("font-size: 13px; color: #4a3b00; background: transparent;")
+        b_text.setStyleSheet("font-size: 13px; color: #1a1a1a;")
         banner_layout.addWidget(b_icon, 0, Qt.AlignTop)
         banner_layout.addWidget(b_text, 1)
         layout.addWidget(banner)
@@ -326,6 +358,7 @@ class MainWindow(QMainWindow):
                 border: 1px solid #e5e5e5;
                 border-radius: 8px;
             }
+            QLabel { border: none; background: transparent; }
         """)
         cl = QVBoxLayout(card)
         cl.setContentsMargins(20, 18, 20, 18)
@@ -423,5 +456,6 @@ class MainWindow(QMainWindow):
         self.scan_status_label.setVisible(visible)
         self.cancel_btn.setVisible(visible)
         self.scan_btn.setEnabled(not visible)
+        self.target_scan_btn.setEnabled(not visible)
         if text:
             self.set_status(text)

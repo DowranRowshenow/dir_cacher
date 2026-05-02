@@ -4,93 +4,61 @@ from typing import Callable, Optional
 from PySide6.QtCore import QObject, Signal, QThread
 from database import Database
 
-class ScanWorker(QObject):
-    progress = Signal(str)  # Current directory being scanned
-    finished = Signal(int)  # Total items scanned
-    error = Signal(str)
-
-    def __init__(self, db: Database, root_paths: list[str]):
-        super().__init__()
-        self.db = db
-        self.root_paths = root_paths
-        self._is_cancelled = False
-
-    def cancel(self):
-        self._is_cancelled = True
-
-    def run(self):
-        total_items = 0
-        batch = []
-        stack = list(self.root_paths)
-        
-        try:
-            while stack and not self._is_cancelled:
-                current_root = stack.pop()
-                self.progress.emit(current_root)
-                
-                try:
-                    with os.scandir(current_root) as it:
-                        for entry in it:
-                            if self._is_cancelled:
-                                break
-                            
-                            try:
-                                stat = entry.stat(follow_symlinks=False)
-                                item = {
-                                    "path": entry.path,
-                                    "parent": current_root,
-                                    "name": entry.name,
-                                    "is_dir": entry.is_dir(),
-                                    "size": stat.st_size,
-                                    "mtime": stat.st_mtime
-                                }
-                                batch.append(item)
-                                total_items += 1
-                                
-                                if entry.is_dir(follow_symlinks=False):
-                                    stack.append(entry.path)
-                                    
-                                if len(batch) >= 500: # Larger batch for better performance
-                                    self.db.upsert_entries(batch)
-                                    batch = []
-                                    self.progress.emit(f"Indexed {total_items} items...")
-                                    
-                            except (PermissionError, OSError) as e:
-                                continue
-                except (PermissionError, OSError) as e:
-                    continue
-                    
-            if batch:
-                self.db.upsert_entries(batch)
-            
-            self.finished.emit(total_items)
-        except Exception as e:
-            import traceback
-            self.error.emit(f"Critical error during scan: {str(e)}\n{traceback.format_exc()}")
+from PySide6.QtCore import QObject, Signal, QProcess
+import sys
 
 class Scanner(QObject):
-    # This class acts as the interface that will eventually wrap the Rust backend
-    def __init__(self, db: Database):
+    progress = Signal(str)
+    finished = Signal(int)
+    error = Signal(str)
+
+    def __init__(self, db):
         super().__init__()
         self.db = db
-        self.thread = None
-        self.worker = None
+        self.process = None
 
-    def start_scan(self, root_paths: list[str], progress_callback, finished_callback, error_callback):
-        self.thread = QThread()
-        self.worker = ScanWorker(self.db, root_paths)
-        self.worker.moveToThread(self.thread)
+    def start_scan(self, root_paths: list[str], progress_callback=None, finished_callback=None, error_callback=None):
+        if self.process and self.process.state() != QProcess.NotRunning:
+            return
+
+        self.process = QProcess()
         
-        self.thread.started.connect(self.worker.run)
-        self.worker.progress.connect(progress_callback)
-        self.worker.finished.connect(finished_callback)
-        self.worker.error.connect(error_callback)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
+        # Connect callbacks
+        if progress_callback: self.progress.connect(progress_callback)
+        if finished_callback: self.finished.connect(finished_callback)
+        if error_callback:    self.error.connect(error_callback)
+
+        self.process.readyReadStandardOutput.connect(self._handle_output)
+        self.process.finished.connect(self._on_finished)
         
-        self.thread.start()
+        args = [sys.executable, "scanner_cli.py", self.db.db_path] + root_paths
+        self.process.start(sys.executable, args[1:])
+
+    def _handle_output(self):
+        while self.process.canReadLine():
+            line = self.process.readLine().data().decode().strip()
+            if line.startswith("PROGRESS:"):
+                count = line.split(":")[1]
+                self.progress.emit(f"Indexed {count} items...")
+            elif line.startswith("START:"):
+                path = line.split(":")[1]
+                self.progress.emit(f"Scanning: {path}")
+
+    def _on_finished(self):
+        output = self.process.readAllStandardOutput().data().decode()
+        total = 0
+        for line in output.splitlines():
+            if line.startswith("DONE:"):
+                total = int(line.split(":")[1])
+        
+        # Clean up signals for next run
+        try:
+            self.finished.emit(total)
+            self.progress.disconnect()
+            self.finished.disconnect()
+            self.error.disconnect()
+        except: pass
 
     def stop_scan(self):
-        if self.worker:
-            self.worker.cancel()
+        if self.process:
+            self.process.kill()

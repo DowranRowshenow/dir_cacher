@@ -43,10 +43,19 @@ class Database:
         columns = [column[0] for column in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def search(self, query: str, filters: Optional[Dict] = None) -> List[Dict]:
-        # Simple search for now, could be enhanced with FTS5
-        sql = "SELECT path, parent, name, is_dir, size, mtime FROM entries WHERE name LIKE ? LIMIT 1000"
+    def search(self, query: str, parent_prefix: Optional[str] = None) -> List[Dict]:
+        sql = "SELECT path, parent, name, is_dir, size, mtime FROM entries WHERE name LIKE ?"
         params = [f"%{query}%"]
+        
+        if parent_prefix:
+            # Scoped search: match items inside parent_prefix or the prefix itself
+            # Normalize to avoid slash mismatches
+            p = parent_prefix.replace("\\", "/").rstrip("/")
+            sql += " AND (path = ? OR path LIKE ?)"
+            params.append(parent_prefix)
+            params.append(f"{p}/%")
+
+        sql += " LIMIT 1000"
         
         cursor = self.conn.execute(sql, params)
         columns = [column[0] for column in cursor.description]

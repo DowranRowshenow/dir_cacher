@@ -95,12 +95,12 @@ class SettingsPanel(QWidget):
         root.addWidget(header)
 
         subtitle = QLabel("Configure index locations, cache storage, and scanning behaviour.")
-        subtitle.setStyleSheet("font-size: 13px; color: #6e6e6e; margin-top: -18px;")
+        subtitle.setStyleSheet("font-size: 13px; color: #6e6e6e;")
         root.addWidget(subtitle)
 
         # ── Cache card ───────────────────────────────────
         cache_section_lbl = QLabel("Storage")
-        cache_section_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #1a1a1a; margin-bottom: -10px;")
+        cache_section_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #1a1a1a;")
         root.addWidget(cache_section_lbl)
 
         cache_card, cache_layout = _card()
@@ -166,7 +166,7 @@ class SettingsPanel(QWidget):
 
         # ── Indexing sources card ─────────────────────────
         sources_section_lbl = QLabel("Indexing Sources")
-        sources_section_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #1a1a1a; margin-bottom: -10px;")
+        sources_section_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #1a1a1a;")
         root.addWidget(sources_section_lbl)
 
         sources_card, sources_layout = _card()

@@ -13,6 +13,8 @@ class PathLogApp:
     def __init__(self):
         self.app = QApplication(sys.argv)
         self.window = MainWindow()
+        from PySide6.QtGui import QIcon
+        self.window.setWindowIcon(QIcon("logo.png"))
 
         self.db: Database | None = None
         self.scanner: Scanner | None = None
@@ -20,6 +22,8 @@ class PathLogApp:
         # Inject data source into explorer table
         self.window.table.set_data_source(self._get_children)
         self.window.table.status_updated.connect(self._on_table_status)
+        self.window.table.home_requested.connect(lambda: self.refresh_explorer(force_home=True))
+        self.window.target_scan_btn.clicked.connect(lambda: self.start_targeted_scan(self.window.table._current_path))
 
         self.load_config()
 
@@ -40,6 +44,9 @@ class PathLogApp:
     def _on_table_status(self, status: str, count: str):
         self.window.set_status(status)
         self.window.item_count_label.setText(count)
+        # Update target scan button visibility/enabled state
+        curr = self.window.table._current_path
+        self.window.target_scan_btn.setEnabled(bool(curr))
 
     # ── Config ────────────────────────────────────────────
     def load_config(self):
@@ -91,6 +98,25 @@ class PathLogApp:
             error_callback=self.on_scan_error,
         )
 
+    def start_targeted_scan(self, path: str):
+        if not path or not self.scanner:
+            return
+        # Silent scan: only show the slim progress bar on the explorer page
+        self.window.progress_bar.setVisible(True)
+        self.window.target_scan_btn.setEnabled(False)
+        self.scanner.start_scan(
+            [path],
+            progress_callback=None, 
+            finished_callback=self.on_targeted_scan_finished,
+            error_callback=self.on_scan_error,
+        )
+
+    def on_targeted_scan_finished(self, count: int):
+        self.window.progress_bar.setVisible(False)
+        self.window.target_scan_btn.setEnabled(True)
+        # Just refresh the current view
+        self.refresh_explorer()
+
     def cancel_scan(self):
         if self.scanner:
             self.scanner.stop_scan()
@@ -105,7 +131,7 @@ class PathLogApp:
         QMessageBox.critical(self.window, "Scan Error", message)
 
     # ── Explorer navigation ───────────────────────────────
-    def refresh_explorer(self):
+    def refresh_explorer(self, force_home=False):
         if not self.db:
             self.window.set_status("Open Settings to configure directories and a cache path.")
             self.window.item_count_label.setText("")
@@ -119,7 +145,13 @@ class PathLogApp:
             self.window.item_count_label.setText("")
             return
 
-        if len(dirs) == 1:
+        # If we are already in a folder, just refresh its content
+        current = self.window.table._current_path
+        if current and not force_home:
+            self.window.table.navigate_to(current, push_history=False)
+            return
+
+        if len(dirs) == 1 and not force_home:
             # Single root → navigate straight into it
             self.window.table.navigate_to(
                 dirs[0],
@@ -127,7 +159,7 @@ class PathLogApp:
                 push_history=False,
             )
         else:
-            # Multiple roots → show virtual list
+            # Multiple roots or forced home → show virtual list
             virtual_roots = []
             for d in dirs:
                 try:
@@ -153,7 +185,10 @@ class PathLogApp:
             return
         if len(text) < 2:
             return
-        results = self.db.search(text)
+        
+        # Scoped search if we are in a directory
+        current_path = self.window.table._current_path
+        results = self.db.search(text, parent_prefix=current_path if current_path else None)
         self.window.table.set_search_results(results, text)
 
     def run(self):
