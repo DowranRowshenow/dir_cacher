@@ -111,6 +111,8 @@ def _section_label(text: str) -> QLabel:
 # Main Window
 # ──────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
+    dir_scan_requested = Signal(str)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DirCache Explorer")
@@ -530,9 +532,77 @@ class MainWindow(QMainWindow):
         cl.addWidget(self.scan_status_label)
 
         layout.addWidget(self.scan_action_card)
+        layout.addSpacing(20)
+
+        self.scan_dirs_container = QWidget()
+        self.scan_dirs_container.setStyleSheet("background: transparent;")
+        self.scan_dirs_layout = QVBoxLayout(self.scan_dirs_container)
+        self.scan_dirs_layout.setContentsMargins(0, 0, 0, 0)
+        self.scan_dirs_layout.setSpacing(10)
+        layout.addWidget(self.scan_dirs_container)
+
         layout.addStretch()
 
         return self.scan_page
+
+    def update_scan_dirs(self, dir_infos: list[dict]):
+        # Clear existing items
+        while self.scan_dirs_layout.count():
+            item = self.scan_dirs_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        if not dir_infos:
+            return
+
+        title = QLabel("Individual Directory Scans")
+        title.setFont(QFont("Segoe UI Variable Text", 14, QFont.Bold))
+        title.setStyleSheet("color: #1a1a1a; background: transparent;")
+        self.scan_dirs_layout.addWidget(title)
+
+        for info in dir_infos:
+            d = info.get("path")
+            if not d: continue
+            
+            row = QFrame()
+            row.setObjectName("IndividualScanCard")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(14, 10, 14, 10)
+            
+            text_col = QVBoxLayout()
+            text_col.setSpacing(2)
+            
+            path_lbl = QLabel(d)
+            path_lbl.setObjectName("ScanCardPath")
+            path_lbl.setStyleSheet("font-size: 13px; color: #1a1a1a; background: transparent; font-weight: 500;")
+            
+            from datetime import datetime
+            last_scan_ts = info.get("last_scan")
+            last_scan_str = "Never"
+            if last_scan_ts:
+                last_scan_str = datetime.fromtimestamp(last_scan_ts).strftime('%Y-%m-%d %H:%M')
+                
+            time_lbl = QLabel(f"Last scanned: {last_scan_str}")
+            time_lbl.setObjectName("ScanCardTime")
+            time_lbl.setStyleSheet("font-size: 11px; color: #888888; background: transparent;")
+            
+            text_col.addWidget(path_lbl)
+            text_col.addWidget(time_lbl)
+            
+            btn = QPushButton("Scan")
+            btn.setFixedHeight(28)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: #f0f0f0; border: 1px solid #cccccc; border-radius: 4px;
+                    padding: 0 16px; font-weight: 500; color: #1a1a1a;
+                }
+                QPushButton:hover { background: #e0e0e0; }
+            """)
+            btn.clicked.connect(lambda _, path=d: self.dir_scan_requested.emit(path))
+            
+            row_layout.addLayout(text_col, 1)
+            row_layout.addWidget(btn, 0)
+            self.scan_dirs_layout.addWidget(row)
 
     # ── Public API ────────────────────────────────────────
     def set_status(self, text: str):
@@ -693,7 +763,39 @@ class MainWindow(QMainWindow):
             self.scan_card_title.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {fg}; background: transparent; border: none;")
         if hasattr(self, 'scan_card_desc'):
             self.scan_card_desc.setStyleSheet(f"font-size: 12px; color: {subtext}; background: transparent; border: none;")
+
+        # Individual scan cards dynamically created
+        card_bg = "#2d2d2d" if is_dark else "#fafafa"
+        border = "#444444" if is_dark else "#e5e5e5"
+        text_color = "#ffffff" if is_dark else "#1a1a1a"
+        btn_bg = "#444444" if is_dark else "#f0f0f0"
+        btn_hover = "#555555" if is_dark else "#e0e0e0"
+        btn_border = "#555555" if is_dark else "#cccccc"
         
+        if hasattr(self, 'scan_dirs_container'):
+            # Also update the title label if it exists
+            for child in self.scan_dirs_layout.parent().children():
+                if isinstance(child, QLabel):
+                    child.setStyleSheet(f"color: {text_color}; background: transparent;")
+                    break
+            
+            for frame in self.scan_dirs_container.findChildren(QFrame):
+                if frame.objectName() == "IndividualScanCard":
+                    frame.setStyleSheet(f"QFrame {{ background: {card_bg}; border: 1px solid {border}; border-radius: 6px; }}")
+                    for child in frame.findChildren(QLabel):
+                        if child.objectName() == "ScanCardPath":
+                            child.setStyleSheet(f"font-size: 13px; color: {text_color}; border: none; background: transparent; font-weight: 500;")
+                        elif child.objectName() == "ScanCardTime":
+                            child.setStyleSheet(f"font-size: 11px; color: {subtext}; border: none; background: transparent;")
+                    for child in frame.findChildren(QPushButton):
+                        child.setStyleSheet(f"""
+                            QPushButton {{
+                                background: {btn_bg}; border: 1px solid {btn_border}; border-radius: 4px;
+                                padding: 0 16px; font-weight: 500; color: {text_color};
+                            }}
+                            QPushButton:hover {{ background: {btn_hover}; }}
+                        """)
+
         # Search bar theme
         self.search_bar.setStyleSheet(f"""
             QLineEdit {{

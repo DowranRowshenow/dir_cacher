@@ -90,6 +90,7 @@ class PathLogApp:
         # Signals
         self.window.scan_btn.clicked.connect(self.start_full_scan)
         self.window.cancel_btn.clicked.connect(self.cancel_scan)
+        self.window.dir_scan_requested.connect(self.start_targeted_scan)
         self.window.search_bar.textChanged.connect(self.search)
         self.window.settings_panel.settings_changed.connect(self.save_config)
         self.window.settings_panel.open_cache_folder_requested.connect(self.open_cache_folder)
@@ -199,9 +200,10 @@ class PathLogApp:
             self.window.settings_panel.dir_list.clear()
             for d in cfg.get("scan_dirs", []):
                 self.window.settings_panel.dir_list.addItem(d)
-            self.window.settings_panel.blockSignals(False)
-            
+            # Collect scan info with timestamps
             self._init_dbs(local_path, cfg.get("shared_cache_path"))
+            
+            self._update_scan_ui()
             self.apply_theme_and_lang()
         except Exception:
             self._init_dbs(local_path, None)
@@ -215,8 +217,20 @@ class PathLogApp:
         except Exception:
             pass
         self._init_dbs(self._get_local_db_path(), settings["shared_cache_path"])
+        
+        self._update_scan_ui()
         self.apply_theme_and_lang()
         self.refresh_explorer(force_home=True)
+
+    def _update_scan_ui(self):
+        settings = self.window.settings_panel.get_settings()
+        dir_infos = []
+        for d in settings.get("scan_dirs", []):
+            db = self._get_db_for_path(d)
+            last_scan = db.get_scan_status(d) if db else None
+            dir_infos.append({"path": d, "last_scan": last_scan})
+            
+        self.window.update_scan_dirs(dir_infos)
 
     def apply_theme_and_lang(self):
         settings = self.window.settings_panel.get_settings()
@@ -284,12 +298,17 @@ class PathLogApp:
             self._scan_sequential(remaining, total_count)
             return
 
+        def _on_finish(count):
+            import time
+            db.update_scan_status(path, time.time())
+            self._scan_sequential(remaining, total_count + count)
+
         # Re-init scanner pointing at the correct DB
         self.scanner = Scanner(db)
         self.scanner.start_scan(
             [path],
             progress_callback=lambda p: self.window.set_status(f"Scanning: {p}"),
-            finished_callback=lambda count: self._scan_sequential(remaining, total_count + count),
+            finished_callback=_on_finish,
             error_callback=self.on_scan_error,
         )
 
@@ -300,17 +319,24 @@ class PathLogApp:
         # Silent scan: only show the slim progress bar on the explorer page
         self.window.progress_bar.setVisible(True)
         self.window.target_scan_btn.setEnabled(False)
+        
+        def _on_finish(count):
+            import time
+            db.update_scan_status(path, time.time())
+            self.on_targeted_scan_finished(count)
+
         self.scanner = Scanner(db)  # Fresh scanner pointing at correct DB
         self.scanner.start_scan(
             [path],
             progress_callback=None,
-            finished_callback=self.on_targeted_scan_finished,
+            finished_callback=_on_finish,
             error_callback=self.on_scan_error,
         )
 
     def on_targeted_scan_finished(self, count: int):
         self.window.progress_bar.setVisible(False)
         self.window.target_scan_btn.setEnabled(True)
+        self._update_scan_ui()
         # Just refresh the current view
         self.refresh_explorer()
 
@@ -321,6 +347,7 @@ class PathLogApp:
 
     def on_scan_finished(self, count: int):
         self.window.set_progress(False, f"Done — {count:,} items indexed.")
+        self._update_scan_ui()
         self.refresh_explorer()
 
     def on_scan_error(self, message: str):

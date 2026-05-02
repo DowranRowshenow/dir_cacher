@@ -2,7 +2,9 @@ __pycache__/
 .venv/
 build/
 dist/
+scanner_core/target/
 
+*.lock
 *.pyc
 *.json
 *.db*

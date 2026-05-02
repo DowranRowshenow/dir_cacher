@@ -25,6 +25,12 @@ class Database:
             """)
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_parent ON entries(parent)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_name ON entries(name)")
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS scan_status (
+                    root_path TEXT PRIMARY KEY,
+                    last_scan REAL
+                )
+            """)
 
     def upsert_entries(self, entries: List[Dict]):
         with self.conn:
@@ -53,9 +59,29 @@ class Database:
         columns = [column[0] for column in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+    def update_scan_status(self, root_path: str, timestamp: float):
+        with self.conn:
+            self.conn.execute("""
+                INSERT INTO scan_status (root_path, last_scan)
+                VALUES (?, ?)
+                ON CONFLICT(root_path) DO UPDATE SET last_scan=excluded.last_scan
+            """, (root_path, timestamp))
+
+    def get_scan_status(self, root_path: str) -> Optional[float]:
+        cursor = self.conn.execute("SELECT last_scan FROM scan_status WHERE root_path = ?", (root_path,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+
     def search(self, query: str, parent_prefix: Optional[str] = None) -> List[Dict]:
-        sql = "SELECT path, parent, name, is_dir, size, mtime FROM entries WHERE name LIKE ?"
-        params = [f"%{query}%"]
+        terms = [t.strip() for t in query.split("&") if t.strip()]
+        if not terms:
+            return []
+
+        sql = "SELECT path, parent, name, is_dir, size, mtime FROM entries WHERE 1=1"
+        params = []
+        for term in terms:
+            sql += " AND name LIKE ?"
+            params.append(f"%{term}%")
         
         if parent_prefix:
             # Normalize to forward slashes to handle both Qt (/) and Win32 (\) paths
