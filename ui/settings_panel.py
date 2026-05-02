@@ -74,6 +74,8 @@ class SettingRow(QWidget):
 
 class SettingsPanel(QWidget):
     settings_changed = Signal()
+    open_cache_folder_requested = Signal()
+    clear_cache_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -142,6 +144,37 @@ class SettingsPanel(QWidget):
         wal_layout.addWidget(wal_lbl, 1)
         cache_layout.addWidget(wal_hint)
 
+        # Open local cache folder button
+        btn_row = QWidget()
+        btn_row_layout = QHBoxLayout(btn_row)
+        btn_row_layout.setContentsMargins(16, 0, 16, 8)
+        self.open_cache_btn = QPushButton("Open Local Cache Folder")
+        self.open_cache_btn.setFixedHeight(30)
+        self.open_cache_btn.setStyleSheet("""
+            QPushButton { 
+                background: #f3f3f3; border: 1px solid #dcdcdc; border-radius: 4px; padding: 0 12px;
+                color: #333333; font-size: 12px;
+            }
+            QPushButton:hover { background: #e5e5e5; }
+        """)
+        self.open_cache_btn.clicked.connect(self.open_cache_folder_requested.emit)
+        
+        self.clear_cache_btn = QPushButton("Clear Local Cache")
+        self.clear_cache_btn.setFixedHeight(30)
+        self.clear_cache_btn.setStyleSheet("""
+            QPushButton { 
+                background: #f3f3f3; border: 1px solid #dcdcdc; border-radius: 4px; padding: 0 12px;
+                color: #d83b01; font-size: 12px;
+            }
+            QPushButton:hover { background: #fee9e9; border-color: #f8baba; }
+        """)
+        self.clear_cache_btn.clicked.connect(self.clear_cache_requested.emit)
+
+        btn_row_layout.addWidget(self.open_cache_btn)
+        btn_row_layout.addWidget(self.clear_cache_btn)
+        btn_row_layout.addStretch()
+        cache_layout.addWidget(btn_row)
+
         root.addWidget(cache_card)
 
         # ── Indexing sources card ─────────────────────────
@@ -155,7 +188,7 @@ class SettingsPanel(QWidget):
 
         list_row = QWidget()
         list_row_layout = QVBoxLayout(list_row)
-        list_row_layout.setContentsMargins(16, 0, 16, 12)
+        list_row_layout.setContentsMargins(16, 10, 16, 12)
         list_row_layout.setSpacing(10)
 
         self.dir_list = QListWidget()
@@ -354,6 +387,9 @@ class SettingsPanel(QWidget):
         for lbl in self.findChildren(QLabel):
             if "font-weight: 700" in lbl.styleSheet() or "font-size: 24px" in lbl.styleSheet():
                 continue # Header already handled
+            if lbl.objectName() == "CardHeader":
+                lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; padding: 14px 16px 10px 16px; background: transparent; border: none; color: {fg};")
+                continue
             lbl.setStyleSheet(f"color: {fg}; background: transparent; border: none;")
 
         # Update border-bottom for row separators dynamically
@@ -371,6 +407,25 @@ class SettingsPanel(QWidget):
                 }}
                 QPushButton:hover {{ background-color: {'rgba(196, 43, 28, 0.2)' if is_dark else 'rgba(196, 43, 28, 0.1)'}; border-color: #c42b1c; }}
             """)
+
+        if hasattr(self, 'open_cache_btn'):
+            self.open_cache_btn.setStyleSheet(f"""
+                QPushButton {{ 
+                    background: {card}; border: 1px solid {border}; border-radius: 4px; padding: 0 12px;
+                    color: {fg}; font-size: 12px;
+                }}
+                QPushButton:hover {{ background: {'#3d3d3d' if is_dark else '#e5e5e5'}; }}
+            """)
+
+        if hasattr(self, 'clear_cache_btn'):
+            self.clear_cache_btn.setStyleSheet(f"""
+                QPushButton {{ 
+                    background: {card}; border: 1px solid {border}; border-radius: 4px; padding: 0 12px;
+                    color: #d83b01; font-size: 12px;
+                }}
+                QPushButton:hover {{ background: {'rgba(216, 59, 1, 0.2)' if is_dark else '#fee9e9'}; border-color: {'#d83b01' if is_dark else '#f8baba'}; }}
+            """)
+
     def get_settings(self) -> dict:
         lang_name = self.lang_combo.currentText()
         lang_code = self.lang_map.get(lang_name, "en")

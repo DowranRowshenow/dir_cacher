@@ -36,6 +36,15 @@ class Database:
                     mtime=excluded.mtime
             """, entries)
 
+    def replace_children(self, parent_path: str, entries: List[Dict]):
+        with self.conn:
+            self.conn.execute("DELETE FROM entries WHERE parent = ?", (parent_path,))
+            if entries:
+                self.conn.executemany("""
+                    INSERT INTO entries (path, parent, name, is_dir, size, mtime)
+                    VALUES (:path, :parent, :name, :is_dir, :size, :mtime)
+                """, entries)
+
     def get_children(self, parent_path: str) -> List[Dict]:
         cursor = self.conn.execute(
             "SELECT path, parent, name, is_dir, size, mtime FROM entries WHERE parent = ? ORDER BY is_dir DESC, name ASC LIMIT 1000",

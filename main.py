@@ -4,8 +4,8 @@ import json
 
 if sys.platform == 'win32':
     import ctypes
-    # Force Windows to treat this as a unique app for taskbar grouping
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('zeroteams.dircache.explorer.v1')
+    # Simplified ID for better compatibility
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('DirCache.v1')
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 from ui.main_window import MainWindow
@@ -24,17 +24,51 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+from PySide6.QtCore import QThread, Signal
+
+class DirSyncWorker(QThread):
+    finished = Signal(str, list)
+    def __init__(self, path: str):
+        super().__init__()
+        self.path = path
+    def run(self):
+        try:
+            entries = []
+            for entry in os.scandir(self.path):
+                try:
+                    s = entry.stat()
+                    entries.append({
+                        "path": entry.path,
+                        "parent": self.path,
+                        "name": entry.name,
+                        "is_dir": entry.is_dir(),
+                        "size": s.st_size if not entry.is_dir() else 0,
+                        "mtime": s.st_mtime
+                    })
+                except OSError:
+                    pass
+            self.finished.emit(self.path, entries)
+        except OSError:
+            pass
+
 class PathLogApp:
     def __init__(self):
         from PySide6.QtGui import QIcon, QShortcut, QKeySequence
         from PySide6.QtCore import Qt
         
         self.app = QApplication(sys.argv)
-        # Use ICO on windows for taskbar reliability
+        self.app.setApplicationName("DirCache")
+        self.app.setOrganizationName("ZeroTeams")
+        
         icon_file = "logo.ico" if os.path.exists(resource_path("logo.ico")) else "logo.png"
-        self.app.setWindowIcon(QIcon(resource_path(icon_file)))
+        icon_path = resource_path(icon_file)
+        
+        app_icon = QIcon(icon_path)
+        self.app.setWindowIcon(app_icon)
+        
         self.window = MainWindow()
-        self.window.setWindowTitle("DirCache Explorer v1.1.0")
+        self.window.setWindowIcon(app_icon)
+        self.window.setWindowTitle("DirCache Explorer v1.2.0")
 
         # Shortcuts
         QShortcut(QKeySequence("F11"), self.window, lambda: self.window.showFullScreen() if not self.window.isFullScreen() else self.window.showNormal())
@@ -43,6 +77,7 @@ class PathLogApp:
         self.local_db: Database | None = None
         self.shared_db: Database | None = None
         self.scanner: Scanner | None = None
+        self._sync_workers = []
 
         # Inject data source into explorer table
         self.window.table.set_data_source(self._get_children)
@@ -57,6 +92,9 @@ class PathLogApp:
         self.window.cancel_btn.clicked.connect(self.cancel_scan)
         self.window.search_bar.textChanged.connect(self.search)
         self.window.settings_panel.settings_changed.connect(self.save_config)
+        self.window.settings_panel.open_cache_folder_requested.connect(self.open_cache_folder)
+        self.window.settings_panel.clear_cache_requested.connect(self.clear_cache)
+        self.window.search_shared_cb.stateChanged.connect(lambda: self.search(self.window.search_bar.text()))
 
         self.refresh_explorer()
 
@@ -74,7 +112,32 @@ class PathLogApp:
         db = self._get_db_for_path(path)
         if not db:
             return []
+        
+        # Start silent background update if local
+        if os.path.exists(path) and db == self.local_db:
+            # Clean up dead workers
+            self._sync_workers = [w for w in self._sync_workers if w.isRunning()]
+            worker = DirSyncWorker(path)
+            worker.finished.connect(self._on_dir_synced)
+            self._sync_workers.append(worker)
+            worker.start()
+            
         return db.get_children(path)
+
+    def _on_dir_synced(self, path: str, entries: list[dict]):
+        db = self._get_db_for_path(path)
+        if db:
+            db.replace_children(path, entries)
+            # If still looking at this folder, update the UI
+            if self.window.table._current_path == path and not self.window.search_bar.text():
+                # Store selection state if any
+                items = db.get_children(path)
+                self.window.table._load_items(items)
+                n = len(items)
+                self.window.table.status_updated.emit(
+                    f"{'1 item' if n == 1 else f'{n:,} items'} in this folder.",
+                    f"{n:,} items"
+                )
 
     def _on_table_status(self, status: str, count: str):
         self.window.set_status(status)
@@ -308,13 +371,45 @@ class PathLogApp:
             if db:
                 results = db.search(text, parent_prefix=current_path)
         else:
-            # Global search across all active DBs
+            # Global search
             if self.local_db:
                 results.extend(self.local_db.search(text))
-            if self.shared_db:
+            
+            # Search shared ONLY if toggle is on
+            if self.window.search_shared_cb.isChecked() and self.shared_db:
                 results.extend(self.shared_db.search(text))
         
         self.window.table.set_search_results(results, text)
+
+    def open_cache_folder(self):
+        appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+        dir_path = os.path.join(appdata, "DirCache")
+        if os.path.exists(dir_path):
+            os.startfile(dir_path)
+
+    def clear_cache(self):
+        ret = QMessageBox.question(
+            self.window, "Clear Cache",
+            "This will delete all locally indexed file metadata. Continue?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if ret == QMessageBox.Yes:
+            # Close connection to allow file deletion
+            if self.local_db:
+                self.local_db.close()
+                self.local_db = None
+            
+            path = self._get_local_db_path()
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    QMessageBox.warning(self.window, "Error", f"Could not delete cache: {e}")
+            
+            # Re-init empty DB
+            self.local_db = Database(path)
+            self.refresh_explorer(force_home=True)
+            QMessageBox.information(self.window, "Done", "Local cache cleared.")
 
     def run(self):
         self.window.show()

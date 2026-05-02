@@ -23,7 +23,9 @@ TRANSLATIONS = {
         "dark": "Dark",
         "system": "System Default",
         "scan_desc": "Index selected directories and write metadata to the shared SQLite cache.",
-        "scan_banner": "Scanning runs entirely in the background."
+        "scan_banner": "Scanning runs entirely in the background.",
+        "shared_search": "Global",
+        "clear_cache": "Clear Cache"
     },
     "tr": {
         "explorer": "Gezgin",
@@ -48,7 +50,9 @@ TRANSLATIONS = {
         "dark": "Koyu",
         "system": "Sistem Varsayılanı",
         "scan_desc": "Seçili dizinleri indeksleyin ve meta verileri paylaşılan SQLite önbelleğine yazın.",
-        "scan_banner": "Tarama tamamen arka planda çalışır."
+        "scan_banner": "Tarama tamamen arka planda çalışır.",
+        "shared_search": "Küresel",
+        "clear_cache": "Önbelleği Temizle"
     },
     "ru": {
         "explorer": "Проводник",
@@ -73,7 +77,9 @@ TRANSLATIONS = {
         "dark": "Темная",
         "system": "Системная",
         "scan_desc": "Индексируйте выбранные каталоги и записывайте метаданные в общий кеш SQLite.",
-        "scan_banner": "Сканирование выполняется в фоновом режиме."
+        "scan_banner": "Сканирование выполняется в фоновом режиме.",
+        "shared_search": "Глобальный",
+        "clear_cache": "Очистить кэш"
     },
     "tk": {
         "explorer": "Gözden geçiriji",
@@ -98,6 +104,8 @@ TRANSLATIONS = {
         "dark": "Garaňky",
         "system": "Ulgamlaýyn",
         "scan_desc": "Saýlanan kataloglary indeksirle we meta maglumatlary paýlaşylan SQLite kükine ýaz.",
-        "scan_banner": "Barlag doly arka planda işleýär."
+        "scan_banner": "Barlag doly arka planda işleýär.",
+        "shared_search": "Global",
+        "clear_cache": "Keşarany Arassala"
     }
 }

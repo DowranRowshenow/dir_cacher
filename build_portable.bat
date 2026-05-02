@@ -18,7 +18,7 @@ robocopy . "%PORTABLE_DIR%\app" /E /XF *.db *.log *.spec *.exe *.bat /XD .git bu
 echo [SUCCESS] App source synced.
 
 echo [3/3] Syncing Python environment (this may take a minute)...
-robocopy "..\.venv" "%PORTABLE_DIR%\python" /E /MT:16 /NFL /NDL >nul
+robocopy ".venv" "%PORTABLE_DIR%\python" /E /MT:16 /NFL /NDL /XD Include >nul
 copy "logo.ico" "%PORTABLE_DIR%\app\logo.ico" >nul
 :: Use a renamed interpreter to force a unique taskbar identity
 copy "%PORTABLE_DIR%\python\Scripts\pythonw.exe" "%PORTABLE_DIR%\python\Scripts\DirCache.exe" >nul

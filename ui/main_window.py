@@ -1,9 +1,10 @@
+from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QTimer, QEvent, QPoint
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QPushButton, QLabel, QLineEdit,
-    QProgressBar, QFrame, QSizePolicy, QScrollArea
+    QProgressBar, QFrame, QSizePolicy, QScrollArea, QSizeGrip,
+    QCheckBox
 )
-from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QTimer, QEvent
 from PySide6.QtGui import QColor, QPainter, QPixmap, QFont, QBrush
 import qtawesome as qta
 
@@ -92,6 +93,7 @@ class NavButton(QWidget):
 
 def _h_sep() -> QFrame:
     f = QFrame()
+    f.setObjectName("HSep")
     f.setFrameShape(QFrame.HLine)
     f.setFixedHeight(1)
     f.setStyleSheet("background-color: #e5e5e5; border: none; margin: 0 12px;")
@@ -206,7 +208,7 @@ class MainWindow(QMainWindow):
         ar_layout.setSpacing(10)
         app_icon_lbl = QLabel()
         app_icon_lbl.setFixedSize(20, 20)
-        app_icon_lbl.setPixmap(qta.icon("fa5s.database", color="#0078d4").pixmap(QSize(18, 18)))
+        app_icon_lbl.setPixmap(QPixmap("logo.png").scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         app_icon_lbl.setStyleSheet("border: none;")
         self.app_logo_lbl = QLabel("DirCache")
         self.app_logo_lbl.setFont(QFont("Segoe UI Variable Display", 12, QFont.Bold))
@@ -244,9 +246,18 @@ class MainWindow(QMainWindow):
         bot_layout.setContentsMargins(6, 6, 6, 8)
         bot_layout.setSpacing(2)
 
-        version_lbl = QLabel("DirCache v1.1.0")
+        version_lbl = QLabel("DirCache v1.2.0")
         version_lbl.setStyleSheet("color: #aaaaaa; font-size: 11px; padding-left: 14px; background: transparent; border: none;")
+        
+        self.grip = QSizeGrip(self)
+        self.grip.setFixedSize(16, 16)
+        self.grip.setStyleSheet("background: transparent;")
+        
         bot_layout.addWidget(version_lbl)
+        
+        # Overlay the grip in the bottom right
+        self.grip.move(self.width() - 16, self.height() - 16)
+        self.grip.raise_()
 
         sb_layout.addWidget(bottom_pad)
 
@@ -326,6 +337,16 @@ class MainWindow(QMainWindow):
                 border: 1px solid #0078d4;
             }
         """)
+
+        search_row.addWidget(self.search_bar, 1)
+        
+        self.search_shared_cb = QCheckBox("Shared")
+        self.search_shared_cb.setStyleSheet("""
+            QCheckBox { font-size: 11px; color: #6e6e6e; background: transparent; padding: 0 4px; }
+            QCheckBox::indicator { width: 14px; height: 14px; }
+        """)
+        self.search_shared_cb.setToolTip("Search in shared network cache too")
+        search_row.addWidget(self.search_shared_cb)
 
         self.target_scan_btn = QPushButton()
         self.target_scan_btn.setIcon(qta.icon("fa5s.sync", color="white"))
@@ -535,11 +556,13 @@ class MainWindow(QMainWindow):
         self.nav_settings.setText(t["settings"])
         
         # Window Title
-        self.setWindowTitle(f"DirCache Explorer v1.1.0 - {t['explorer']}")
-        self.title_label.setText(f"DirCache Explorer - {t['explorer']}")
+        self.setWindowTitle(f"DIRCACHE - {t['explorer']}")
+        self.title_label.setText(f"DIRCACHE - {t['explorer']}")
 
         # Explorer Page
         self.search_bar.setPlaceholderText(t["search_placeholder"])
+        self.search_shared_cb.setText(t["shared_search"])
+        self.settings_panel.clear_cache_btn.setText(t["clear_cache"])
         self.explorer_title.setText(t["explorer"])
         self.explorer_subtitle.setText("Browse and search your indexed directories from the local cache.") # This one is static for now or can be translated if key exists
         
@@ -562,6 +585,62 @@ class MainWindow(QMainWindow):
         subtext = "#aaaaaa" if is_dark else "#666666"
         card = "#2d2d2d" if is_dark else "#fafafa"
         
+        tooltip_bg = "#2d2d2d" if is_dark else "#ffffff"
+        tooltip_fg = "#ffffff" if is_dark else "#000000"
+        tooltip_border = "#444444" if is_dark else "#cccccc"
+        
+        scroll_bg = "transparent"
+        scroll_handle = "#555555" if is_dark else "#cccccc"
+        scroll_hover = "#777777" if is_dark else "#aaaaaa"
+        
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().setStyleSheet(f"""
+            QToolTip {{
+                background-color: {tooltip_bg};
+                color: {tooltip_fg};
+                border: 1px solid {tooltip_border};
+                border-radius: 4px;
+                padding: 6px 10px;
+                margin: 2px;
+            }}
+            QScrollBar:vertical {{
+                border: none;
+                background: {scroll_bg};
+                width: 10px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {scroll_handle};
+                min-height: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {scroll_hover};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                border: none;
+                background: none;
+            }}
+            QScrollBar:horizontal {{
+                border: none;
+                background: {scroll_bg};
+                height: 10px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {scroll_handle};
+                min-width: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {scroll_hover};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                border: none;
+                background: none;
+            }}
+        """)
+        
         is_full = self.isFullScreen() or self.isMaximized()
         self.central_widget.setStyleSheet(f"""
             #MainWindowContent {{
@@ -578,6 +657,12 @@ class MainWindow(QMainWindow):
                 border-bottom-left-radius: {'0px' if is_full else '8px'};
             }}
         """)
+
+        # Dynamically style the horizontal separators in the sidebar
+        sep_color = "#333333" if is_dark else "#e5e5e5"
+        for sep in self.sidebar_widget.findChildren(QFrame):
+            if sep.objectName() == "HSep":
+                sep.setStyleSheet(f"background-color: {sep_color}; border: none; margin: 0 12px;")
         
         self.stack.setStyleSheet(f"background: {bg}; border: none;")
         self.settings_scroll.setStyleSheet(f"background: {bg}; border: none;")
@@ -589,6 +674,8 @@ class MainWindow(QMainWindow):
         self.scan_title.setStyleSheet(f"color: {fg}; background: transparent; border: none;")
         self.scan_desc.setStyleSheet(f"color: {subtext}; background: transparent; border: none;")
         
+        self.search_shared_cb.setStyleSheet(f"QCheckBox {{ font-size: 11px; color: {subtext}; background: transparent; padding: 0 4px; }} QCheckBox::indicator {{ width: 14px; height: 14px; }}")
+
         # Scan page specific themes
         banner_bg = "#1f2937" if is_dark else "#eff6fc" # Dark slate blue
         banner_border = "#374151" if is_dark else "#cce4f7"
@@ -639,6 +726,9 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event):
         # Update theme to adjust border radius on resize/maximize
         self.set_theme(self.is_dark_mode())
+        # Keep grip in bottom right
+        self.grip.move(self.width() - 16, self.height() - 16)
+        self.grip.raise_()
         super().resizeEvent(event)
 
     def changeEvent(self, event):

@@ -141,6 +141,10 @@ class BreadcrumbBar(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
         self._path = ""
+        self.is_dark = False
+
+    def set_theme(self, is_dark: bool):
+        self.is_dark = is_dark
 
     def set_path(self, path: str, root_label: str = "", root_path: str = ""):
         self._path = path
@@ -208,9 +212,11 @@ class BreadcrumbBar(QWidget):
             btn.setFlat(True)
             btn.setCursor(Qt.PointingHandCursor)
             is_last = (i == len(parts) - 1)
+            fg = "#ffffff" if self.is_dark else "#1a1a1a"
+            hover_bg = "rgba(255,255,255,0.1)" if self.is_dark else "#f0f0f0"
             btn.setStyleSheet(f"""
                 QPushButton {{
-                    color: {'#1a1a1a' if is_last else '#0078d4'};
+                    color: {fg if is_last else '#0078d4'};
                     font-size: 13px;
                     font-weight: {'600' if is_last else '400'};
                     border: none;
@@ -218,7 +224,9 @@ class BreadcrumbBar(QWidget):
                     padding: 0 2px;
                 }}
                 QPushButton:hover {{
-                    color: #0067b8;
+                    background: {hover_bg};
+                    border-radius: 4px;
+                    color: #0078d4;
                     text-decoration: underline;
                 }}
             """)
@@ -288,6 +296,8 @@ class ExplorerTable(QWidget):
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setShowGrid(False)
+        self._table.setFocusPolicy(Qt.NoFocus)
+        self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
         self._table.setIconSize(QSize(16, 16))
@@ -358,6 +368,9 @@ class ExplorerTable(QWidget):
                 color: {fg};
             }}
         """)
+        
+        self._breadcrumb.set_theme(is_dark)
+        self._breadcrumb.set_path(self._current_path or "", self._root_label, self._root_path)
         
         # Explicitly style the header to avoid inheriting parent white backgrounds
         header_hover = "#333333" if is_dark else "#f0f0f0"

@@ -54,12 +54,14 @@ robocopy . "dist\%PROJECT_NAME%_Portable\app" /E /XF *.db *.log *.spec *.exe *.b
 echo Copying bundled python (this will take a moment)...
 robocopy "..\.venv" "dist\%PROJECT_NAME%_Portable\python" /E /MT:16 /NFL /NDL >nul
 copy "logo.ico" "dist\%PROJECT_NAME%_Portable\app\logo.ico" >nul
+:: Use a renamed interpreter to force a unique taskbar identity
+copy "dist\%PROJECT_NAME%_Portable\python\Scripts\pythonw.exe" "dist\%PROJECT_NAME%_Portable\python\Scripts\DirCache.exe" >nul
 
 echo [5/5] Adding Portable Launcher...
 (
 echo @echo off
 echo cd /d %%~dp0
-echo start "" "python\Scripts\pythonw.exe" "app\main.py"
+echo start "" "python\Scripts\DirCache.exe" "app\main.py"
 echo exit
 ) > "dist\%PROJECT_NAME%_Portable\Launch_DirCache.bat"
 
