@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from ui.main_window import MainWindow
 from database import Database
 from scanner import Scanner
+from ui.i18n import TRANSLATIONS
 
 CONFIG_FILE = "config.json"
 
@@ -13,9 +14,18 @@ class PathLogApp:
     def __init__(self):
         self.app = QApplication(sys.argv)
         self.window = MainWindow()
-        from PySide6.QtGui import QIcon
+        from PySide6.QtGui import QIcon, QShortcut, QKeySequence
+        from PySide6.QtCore import Qt
         self.window.setWindowIcon(QIcon("logo.png"))
-        self.window.setWindowTitle("DirCache Explorer v1.0.0 Stable")
+        self.window.setWindowTitle("DirCache Explorer v1.1.0")
+        
+        # Win11 Style: Custom title bar requires FramelessWindowHint
+        self.window.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+        self.window.setAttribute(Qt.WA_TranslucentBackground)
+
+        # Shortcuts
+        QShortcut(QKeySequence("F11"), self.window, lambda: self.window.showFullScreen() if not self.window.isFullScreen() else self.window.showNormal())
+        QShortcut(QKeySequence("Alt+Return"), self.window, lambda: self.window.show_properties())
 
         self.local_db: Database | None = None
         self.shared_db: Database | None = None
@@ -78,12 +88,20 @@ class PathLogApp:
             
             self.window.settings_panel.blockSignals(True)
             self.window.settings_panel.shared_cache_edit.setText(cfg.get("shared_cache_path", ""))
+            
+            # Map code back to name for display
+            lang_code = cfg.get("language", "en")
+            reverse_map = {v: k for k, v in self.window.settings_panel.lang_map.items()}
+            self.window.settings_panel.lang_combo.setCurrentText(reverse_map.get(lang_code, "English"))
+            
+            self.window.settings_panel.theme_combo.setCurrentText(cfg.get("theme", "System Default"))
             self.window.settings_panel.dir_list.clear()
             for d in cfg.get("scan_dirs", []):
                 self.window.settings_panel.dir_list.addItem(d)
             self.window.settings_panel.blockSignals(False)
             
             self._init_dbs(local_path, cfg.get("shared_cache_path"))
+            self.apply_theme_and_lang()
         except Exception:
             self._init_dbs(local_path, None)
             self.window.settings_panel.blockSignals(False)
@@ -96,7 +114,27 @@ class PathLogApp:
         except Exception:
             pass
         self._init_dbs(self._get_local_db_path(), settings["shared_cache_path"])
+        self.apply_theme_and_lang()
         self.refresh_explorer(force_home=True)
+
+    def apply_theme_and_lang(self):
+        settings = self.window.settings_panel.get_settings()
+        lang = settings.get("language", "en")
+        theme = settings.get("theme", "System Default")
+        
+        # 1. Update Translations
+        t = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+        self.window.update_translations(t)
+        
+        # 2. Update Theme
+        if theme == "System Default":
+            # Simple check for Windows Dark Mode
+            from PySide6.QtGui import QPalette
+            is_dark = QPalette().window().color().lightness() < 128
+        else:
+            is_dark = (theme == "Dark")
+            
+        self.window.set_theme(is_dark)
 
     def _init_dbs(self, local_path: str, shared_path: str):
         if self.local_db: self.local_db.close()

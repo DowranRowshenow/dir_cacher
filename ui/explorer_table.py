@@ -1,5 +1,7 @@
 import os
 import datetime
+import ctypes
+from ctypes import wintypes
 import html
 import re
 from PySide6.QtWidgets import (
@@ -282,16 +284,6 @@ class ExplorerTable(QWidget):
         hh.resizeSection(2, 86)
         hh.resizeSection(3, 160)
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        hh.setStyleSheet("""
-            QHeaderView::section {
-                background-color: #f9f9f9;
-                border: none;
-                border-bottom: 1px solid #e5e5e5;
-                border-right: 1px solid #e5e5e5;
-                padding-left: 6px;
-                font-weight: 600;
-            }
-        """)
 
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -300,9 +292,6 @@ class ExplorerTable(QWidget):
         self._table.setAlternatingRowColors(True)
         self._table.setIconSize(QSize(16, 16))
         self._table.verticalHeader().setDefaultSectionSize(32)
-        self._table.setStyleSheet("""
-            QTableWidget::item { padding-left: 6px; }
-        """)
         self._table.doubleClicked.connect(self._on_double_click)
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._context_menu)
@@ -322,6 +311,71 @@ class ExplorerTable(QWidget):
         self._root_label: str = ""
         self._root_path: str = ""
         self._get_children_fn = None
+
+    def set_theme(self, is_dark: bool):
+        bg = "#1e1e1e" if is_dark else "#ffffff"
+        fg = "#ffffff" if is_dark else "#1a1a1a"
+        border = "#333333" if is_dark else "#ebebeb"
+        header = "#252525" if is_dark else "#f9f9f9"
+        
+        self._highlight_delegate.is_dark = is_dark
+        self.setStyleSheet(f"background: {bg}; border: none;")
+        
+        # We need to add set_theme to Breadcrumb if not present
+        if hasattr(self._breadcrumb, "set_theme"):
+            self._breadcrumb.set_theme(is_dark)
+        
+        self._back_btn.setIcon(qta.icon("fa5s.arrow-left", color=fg))
+        
+        self._table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {bg};
+                alternate-background-color: {'#252525' if is_dark else '#f9f9f9'};
+                color: {fg};
+                gridline-color: {border};
+                border: none;
+                selection-background-color: {'#3d3d3d' if is_dark else '#e5f3ff'};
+            }}
+            QHeaderView::section {{
+                background-color: {header};
+                color: {fg};
+                border: none;
+                border-bottom: 1px solid {border};
+                border-right: 1px solid {border};
+                padding: 4px;
+                padding-left: 6px;
+                font-weight: 600;
+            }}
+            QTableWidget::item {{
+                border-bottom: 1px solid {border};
+                padding-left: 6px;
+            }}
+            QTableWidget::item:hover {{
+                background-color: {'rgba(255,255,255,0.05)' if is_dark else 'rgba(0,0,0,0.03)'};
+            }}
+            QTableWidget::item:selected {{
+                background-color: {'#3d3d3d' if is_dark else '#e5f3ff'};
+                color: {fg};
+            }}
+        """)
+        
+        # Explicitly style the header to avoid inheriting parent white backgrounds
+        header_hover = "#333333" if is_dark else "#f0f0f0"
+        self._table.horizontalHeader().setStyleSheet(f"""
+            QHeaderView::section {{
+                background-color: {header};
+                color: {fg};
+                border: none;
+                border-bottom: 1px solid {border};
+                border-right: 1px solid {border};
+                padding: 4px;
+                padding-left: 6px;
+                font-weight: 600;
+            }}
+            QHeaderView::section:hover {{
+                background-color: {header_hover};
+            }}
+        """)
 
     # ── Public API ─────────────────────────────────────────
     def clear_history(self):
@@ -432,7 +486,7 @@ class ExplorerTable(QWidget):
             name_item.setIcon(icon)
             
             if is_dir:
-                name_item.setFont(QFont("Segoe UI Variable Text", 10))
+                name_item.setFont(QFont("Segoe UI Variable Display", 10))
             tbl.setItem(row, 0, name_item)
 
             # Col 1 — Type
@@ -492,42 +546,86 @@ class ExplorerTable(QWidget):
         prop_act   = menu.addAction(qta.icon("fa5s.info-circle", color="#888888"), "Properties")
 
         action = menu.exec(self._table.viewport().mapToGlobal(pos))
+        path = self._normalize_path(path)
         if not path:
             return
+
         if action == copy_act:
             QApplication.clipboard().setText(path)
         elif action == prop_act:
-            from PySide6.QtWidgets import QMessageBox
-            try:
-                st = os.stat(path)
-                created = datetime.datetime.fromtimestamp(st.st_ctime).strftime("%Y-%m-%d  %H:%M:%S")
-                modified = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d  %H:%M:%S")
-                size_str = self._fmt_size(st.st_size)
-                
-                info = [
-                    f"Name: {os.path.basename(path)}",
-                    f"Location: {os.path.dirname(path)}",
-                    f"Type: {'File folder' if os.path.isdir(path) else 'File'}",
-                    "",
-                    f"Size: {size_str} ({st.st_size:,} bytes)",
-                    "",
-                    f"Created: {created}",
-                    f"Modified: {modified}",
-                ]
-                QMessageBox.information(self, "Properties", "\n".join(info))
-            except Exception as e:
-                QMessageBox.warning(self, "Error", f"Could not fetch properties: {e}")
+            self._show_native_properties(path)
         elif action == open_act:
             try:
                 os.startfile(path)
             except Exception:
                 pass
         elif action == reveal_act:
-            target = path if os.path.isdir(path) else os.path.dirname(path)
             try:
-                os.startfile(target)
+                import subprocess
+                if os.path.isdir(path):
+                    os.startfile(path)
+                else:
+                    subprocess.run(['explorer', '/select,', path])
             except Exception:
                 pass
+
+    def _on_context_properties(self):
+        """Called via shortcut (Alt+Enter)"""
+        items = self._table.selectedItems()
+        if not items:
+            return
+        row = items[0].row()
+        name_item = self._table.item(row, 0)
+        if not name_item:
+            return
+        data = name_item.data(Qt.UserRole) or {}
+        path = data.get("path", "")
+        if path:
+            self._show_native_properties(path)
+
+    def _show_native_properties(self, path: str):
+        path = self._normalize_path(path)
+        if not os.path.exists(path):
+            return
+
+        # Windows Shell API to show properties dialog
+        SEE_MASK_INVOKEIDLIST = 0x0000000C
+        
+        class SHELLEXECUTEINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", wintypes.DWORD),
+                ("fMask", wintypes.ULONG),
+                ("hwnd", wintypes.HWND),
+                ("lpVerb", wintypes.LPCWSTR),
+                ("lpFile", wintypes.LPCWSTR),
+                ("lpParameters", wintypes.LPCWSTR),
+                ("lpDirectory", wintypes.LPCWSTR),
+                ("nShow", ctypes.c_int),
+                ("hInstApp", wintypes.HINSTANCE),
+                ("lpIDList", wintypes.LPVOID),
+                ("lpClass", wintypes.LPCWSTR),
+                ("hkeyClass", wintypes.HKEY),
+                ("dwHotKey", wintypes.DWORD),
+                ("hIconOrMonitor", wintypes.HANDLE),
+                ("hProcess", wintypes.HANDLE),
+            ]
+
+        sei = SHELLEXECUTEINFO()
+        sei.cbSize = ctypes.sizeof(sei)
+        sei.fMask = SEE_MASK_INVOKEIDLIST
+        sei.lpVerb = "properties"
+        sei.lpFile = path
+        sei.nShow = 5 # SW_SHOW
+        ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei))
+
+    def _normalize_path(self, path: str) -> str:
+        if not path: return ""
+        # Convert all to backslashes for Windows API
+        p = path.replace("/", "\\")
+        # Ensure UNC paths start with double backslash
+        if path.startswith("//") or path.startswith("\\\\"):
+            p = "\\\\" + p.lstrip("\\")
+        return os.path.normpath(p)
 
     @staticmethod
     def _fmt_size(size: int) -> str:
