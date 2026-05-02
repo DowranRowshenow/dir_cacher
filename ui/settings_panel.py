@@ -104,25 +104,23 @@ class SettingsPanel(QWidget):
         root.addWidget(cache_section_lbl)
 
         cache_card, cache_layout = _card()
-        cache_layout.addWidget(_card_header("Cache Database"))
+        cache_layout.addWidget(_card_header("Shared Network Storage (UNC)"))
+        shared_row = QWidget()
+        shared_row.setStyleSheet("border-bottom: 1px solid #ebebeb;")
+        shared_row.setFixedHeight(56)
+        shared_row_layout = QHBoxLayout(shared_row)
+        shared_row_layout.setContentsMargins(16, 0, 16, 0)
+        shared_row_layout.setSpacing(10)
 
-        # Path row
-        path_row = QWidget()
-        path_row.setStyleSheet("border-bottom: 1px solid #ebebeb;")
-        path_row.setFixedHeight(56)
-        path_row_layout = QHBoxLayout(path_row)
-        path_row_layout.setContentsMargins(16, 0, 16, 0)
-        path_row_layout.setSpacing(10)
+        s_icon = QLabel()
+        s_icon.setFixedSize(20, 20)
+        s_icon.setPixmap(qta.icon("fa5s.network-wired", color="#0078d4").pixmap(QSize(16, 16)))
+        s_icon.setStyleSheet("border: none;")
 
-        db_icon = QLabel()
-        db_icon.setFixedSize(20, 20)
-        db_icon.setPixmap(qta.icon("fa5s.database", color="#0078d4").pixmap(QSize(16, 16)))
-        db_icon.setStyleSheet("border: none;")
-
-        self.cache_path_edit = QLineEdit()
-        self.cache_path_edit.setPlaceholderText("Path to SQLite cache (supports network paths)…")
-        self.cache_path_edit.setFixedHeight(30)
-        self.cache_path_edit.setStyleSheet("""
+        self.shared_cache_edit = QLineEdit()
+        self.shared_cache_edit.setPlaceholderText("Shared SQLite cache (e.g. \\\\server\\share\\shared_cache.db)…")
+        self.shared_cache_edit.setFixedHeight(30)
+        self.shared_cache_edit.setStyleSheet("""
             QLineEdit {
                 border: 1px solid #c8c8c8; border-radius: 4px;
                 background: #ffffff; font-size: 13px; padding: 0 10px;
@@ -130,22 +128,22 @@ class SettingsPanel(QWidget):
             QLineEdit:focus { border-color: #0078d4; }
         """)
 
-        browse_btn = QPushButton("Browse…")
-        browse_btn.setFixedHeight(30)
-        browse_btn.setFixedWidth(90)
-        browse_btn.setStyleSheet("""
+        s_browse_btn = QPushButton("Browse…")
+        s_browse_btn.setFixedHeight(30)
+        s_browse_btn.setFixedWidth(90)
+        s_browse_btn.setStyleSheet("""
             QPushButton {
                 background: #ffffff; border: 1px solid #c8c8c8;
                 border-radius: 4px; font-size: 13px; color: #1a1a1a;
             }
             QPushButton:hover { background: #f5f5f5; }
         """)
-        browse_btn.clicked.connect(self._browse_cache)
+        s_browse_btn.clicked.connect(lambda: self._browse_cache(self.shared_cache_edit))
 
-        path_row_layout.addWidget(db_icon)
-        path_row_layout.addWidget(self.cache_path_edit, 1)
-        path_row_layout.addWidget(browse_btn)
-        cache_layout.addWidget(path_row)
+        shared_row_layout.addWidget(s_icon)
+        shared_row_layout.addWidget(self.shared_cache_edit, 1)
+        shared_row_layout.addWidget(s_browse_btn)
+        cache_layout.addWidget(shared_row)
 
         # WAL hint row
         wal_hint = QWidget()
@@ -210,6 +208,20 @@ class SettingsPanel(QWidget):
             QPushButton:pressed { background-color: #005a9e; }
         """)
 
+        add_manual_btn = QPushButton("  Add UNC Path Manually")
+        add_manual_btn.setFixedHeight(32)
+        add_manual_btn.setIcon(qta.icon("fa5s.network-wired", color="white"))
+        add_manual_btn.setIconSize(QSize(14, 14))
+        add_manual_btn.clicked.connect(self._add_directory_manual)
+        add_manual_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #107c10; color: white; border: none;
+                border-radius: 4px; font-size: 13px; font-weight: 600;
+                padding: 0 16px;
+            }
+            QPushButton:hover { background-color: #0d620d; }
+        """)
+
         remove_btn = QPushButton("Remove")
         remove_btn.setFixedHeight(32)
         remove_btn.clicked.connect(self._remove_directory)
@@ -223,6 +235,7 @@ class SettingsPanel(QWidget):
         """)
 
         btn_row.addWidget(add_btn)
+        btn_row.addWidget(add_manual_btn)
         btn_row.addWidget(remove_btn)
         btn_row.addStretch()
 
@@ -235,18 +248,25 @@ class SettingsPanel(QWidget):
 
     # ── Actions ───────────────────────────────────────────
 
-    def _browse_cache(self):
+    def _browse_cache(self, edit_field: QLineEdit):
         path, _ = QFileDialog.getSaveFileName(
             self, "Select Cache Database", "", "SQLite Database (*.db)"
         )
         if path:
-            self.cache_path_edit.setText(path)
+            edit_field.setText(path)
             self.settings_changed.emit()
 
     def _add_directory(self):
         path = QFileDialog.getExistingDirectory(self, "Select Directory to Index")
         if path:
             self.dir_list.addItem(path)
+            self.settings_changed.emit()
+
+    def _add_directory_manual(self):
+        from PySide6.QtWidgets import QInputDialog
+        path, ok = QInputDialog.getText(self, "Add UNC Path", "Enter network path (e.g. \\\\server\\share):")
+        if ok and path:
+            self.dir_list.addItem(path.strip())
             self.settings_changed.emit()
 
     def _remove_directory(self):
@@ -256,7 +276,7 @@ class SettingsPanel(QWidget):
 
     def get_settings(self) -> dict:
         return {
-            "cache_path": self.cache_path_edit.text().strip(),
+            "shared_cache_path": self.shared_cache_edit.text().strip(),
             "scan_dirs": [
                 self.dir_list.item(i).text()
                 for i in range(self.dir_list.count())

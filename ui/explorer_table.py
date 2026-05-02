@@ -11,39 +11,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QColor, QFont, QCursor, QTextDocument, QAbstractTextDocumentLayout
 import qtawesome as qta
+from ui.icon_provider import IconProvider
 
-# ── Extension → icon map ──────────────────────────────────
-EXT_ICONS = {
-    ".pdf":  ("fa5s.file-pdf",        "#e74c3c"),
-    ".doc":  ("fa5s.file-word",       "#2b5797"),
-    ".docx": ("fa5s.file-word",       "#2b5797"),
-    ".xls":  ("fa5s.file-excel",      "#1d6f42"),
-    ".xlsx": ("fa5s.file-excel",      "#1d6f42"),
-    ".xlsm": ("fa5s.file-excel",      "#1d6f42"),
-    ".ppt":  ("fa5s.file-powerpoint", "#c43e1c"),
-    ".pptx": ("fa5s.file-powerpoint", "#c43e1c"),
-    ".txt":  ("fa5s.file-alt",        "#6e6e6e"),
-    ".csv":  ("fa5s.file-csv",        "#1d6f42"),
-    ".zip":  ("fa5s.file-archive",    "#f0a30a"),
-    ".rar":  ("fa5s.file-archive",    "#f0a30a"),
-    ".7z":   ("fa5s.file-archive",    "#f0a30a"),
-    ".png":  ("fa5s.file-image",      "#8764b8"),
-    ".jpg":  ("fa5s.file-image",      "#8764b8"),
-    ".jpeg": ("fa5s.file-image",      "#8764b8"),
-    ".gif":  ("fa5s.file-image",      "#8764b8"),
-    ".svg":  ("fa5s.file-image",      "#8764b8"),
-    ".py":   ("fa5s.file-code",       "#3572A5"),
-    ".js":   ("fa5s.file-code",       "#f7df1e"),
-    ".ts":   ("fa5s.file-code",       "#3178c6"),
-    ".html": ("fa5s.file-code",       "#e34c26"),
-    ".css":  ("fa5s.file-code",       "#264de4"),
-    ".rs":   ("fa5s.file-code",       "#dea584"),
-    ".json": ("fa5s.file-code",       "#cbcb41"),
-    ".exe":  ("fa5s.cog",             "#6e6e6e"),
-    ".lnk":  ("fa5s.external-link-alt","#868686"),
-    ".mp4":  ("fa5s.file-video",      "#c43e1c"),
-    ".mp3":  ("fa5s.file-audio",      "#1db954"),
-}
+# (EXT_ICONS removed, replaced by dynamic IconProvider)
 _ICON_CACHE: dict = {}
 
 def _icon(name: str, color: str, sz: int = 16):
@@ -269,6 +239,8 @@ class ExplorerTable(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+        
+        self._icon_provider = IconProvider()
 
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
@@ -451,12 +423,12 @@ class ExplorerTable(QWidget):
             # Col 0 — Name (Natural Sort + Folder Priority)
             name_item = SortableItem(name, is_dir)
             name_item.setData(Qt.UserRole, {"path": path, "is_dir": is_dir})
+            
+            icon = self._icon_provider.get_icon(path, is_dir)
+            name_item.setIcon(icon)
+            
             if is_dir:
-                name_item.setIcon(qta.icon("fa5s.folder", color="#f0a30a"))
                 name_item.setFont(QFont("Segoe UI Variable Text", 10))
-            else:
-                icon_name, color = EXT_ICONS.get(ext, ("fa5s.file", "#868686"))
-                name_item.setIcon(qta.icon(icon_name, color=color))
             tbl.setItem(row, 0, name_item)
 
             # Col 1 — Type

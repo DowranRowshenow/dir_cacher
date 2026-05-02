@@ -137,7 +137,7 @@ class MainWindow(QMainWindow):
         app_icon_lbl.setFixedSize(20, 20)
         app_icon_lbl.setPixmap(qta.icon("fa5s.database", color="#0078d4").pixmap(QSize(18, 18)))
         app_icon_lbl.setStyleSheet("border: none;")
-        app_name_lbl = QLabel("PathLog")
+        app_name_lbl = QLabel("DirCache")
         app_name_lbl.setFont(QFont("Segoe UI Variable Display", 12, QFont.Bold))
         app_name_lbl.setStyleSheet("color: #1a1a1a; background: transparent; border: none;")
         ar_layout.addWidget(app_icon_lbl)
@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
         bot_layout.setContentsMargins(6, 6, 6, 8)
         bot_layout.setSpacing(2)
 
-        version_lbl = QLabel("PathLog v1.0.4")
+        version_lbl = QLabel("DirCache v1.0.5")
         version_lbl.setStyleSheet("color: #aaaaaa; font-size: 11px; padding-left: 14px; background: transparent; border: none;")
         bot_layout.addWidget(version_lbl)
 

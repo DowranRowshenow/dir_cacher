@@ -5,9 +5,10 @@ from typing import List, Optional, Dict
 class Database:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30000)
         self.conn.execute("PRAGMA journal_mode = WAL;")
         self.conn.execute("PRAGMA synchronous = NORMAL;")
+        self.conn.execute("PRAGMA busy_timeout = 30000;")
         self.create_tables()
 
     def create_tables(self):

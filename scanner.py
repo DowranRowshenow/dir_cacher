@@ -1,11 +1,82 @@
-import os
-import time
-from typing import Callable, Optional
 from PySide6.QtCore import QObject, Signal, QThread
+import os
+import sys
+import sqlite3
+import time
 from database import Database
 
-from PySide6.QtCore import QObject, Signal, QProcess
-import sys
+class ScanWorker(QObject):
+    progress = Signal(str)
+    finished = Signal(int)
+    error = Signal(str)
+
+    def __init__(self, db_path: str, root_paths: list[str]):
+        super().__init__()
+        self.db_path = db_path
+        self.root_paths = root_paths
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
+    def run(self):
+        try:
+            # Private connection for the thread to avoid locking the UI
+            conn = sqlite3.connect(self.db_path, timeout=30000)
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA busy_timeout = 30000")
+            
+            total = 0
+            batch = []
+            
+            for root_dir in self.root_paths:
+                if self._is_cancelled: break
+                stack = [root_dir]
+                
+                while stack and not self._is_cancelled:
+                    curr = stack.pop()
+                    try:
+                        with os.scandir(curr) as it:
+                            for entry in it:
+                                if self._is_cancelled: break
+                                try:
+                                    is_dir = entry.is_dir(follow_symlinks=False)
+                                    stat = entry.stat(follow_symlinks=False)
+                                    
+                                    batch.append((
+                                        entry.path, curr, entry.name,
+                                        is_dir, stat.st_size, stat.st_mtime
+                                    ))
+                                    total += 1
+                                    
+                                    if is_dir:
+                                        stack.append(entry.path)
+                                        
+                                    if len(batch) >= 500:
+                                        self._flush(conn, batch)
+                                        batch = []
+                                        self.progress.emit(f"Indexed {total} items...")
+                                        
+                                except (PermissionError, OSError): continue
+                    except (PermissionError, OSError): continue
+                        
+            if batch:
+                self._flush(conn, batch)
+                
+            conn.close()
+            self.finished.emit(total)
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def _flush(self, conn, batch):
+        with conn:
+            conn.executemany("""
+                INSERT INTO entries (path, parent, name, is_dir, size, mtime)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(path) DO UPDATE SET
+                    size=excluded.size, mtime=excluded.mtime
+            """, batch)
 
 class Scanner(QObject):
     progress = Signal(str)
@@ -15,50 +86,52 @@ class Scanner(QObject):
     def __init__(self, db):
         super().__init__()
         self.db = db
-        self.process = None
+        self._thread = None
+        self._worker = None
 
     def start_scan(self, root_paths: list[str], progress_callback=None, finished_callback=None, error_callback=None):
-        if self.process and self.process.state() != QProcess.NotRunning:
+        if self._thread and self._thread.isRunning():
             return
 
-        self.process = QProcess()
+        self._thread = QThread()
+        self._worker = ScanWorker(self.db.db_path, root_paths)
+        self._worker.moveToThread(self._thread)
         
-        # Connect callbacks
+        self._thread.started.connect(self._worker.run)
+        
+        # Safe signal connections
         if progress_callback: self.progress.connect(progress_callback)
         if finished_callback: self.finished.connect(finished_callback)
         if error_callback:    self.error.connect(error_callback)
-
-        self.process.readyReadStandardOutput.connect(self._handle_output)
-        self.process.finished.connect(self._on_finished)
         
-        args = [sys.executable, "scanner_cli.py", self.db.db_path] + root_paths
-        self.process.start(sys.executable, args[1:])
-
-    def _handle_output(self):
-        while self.process.canReadLine():
-            line = self.process.readLine().data().decode().strip()
-            if line.startswith("PROGRESS:"):
-                count = line.split(":")[1]
-                self.progress.emit(f"Indexed {count} items...")
-            elif line.startswith("START:"):
-                path = line.split(":")[1]
-                self.progress.emit(f"Scanning: {path}")
-
-    def _on_finished(self):
-        output = self.process.readAllStandardOutput().data().decode()
-        total = 0
-        for line in output.splitlines():
-            if line.startswith("DONE:"):
-                total = int(line.split(":")[1])
+        self._worker.progress.connect(self.progress.emit)
+        self._worker.finished.connect(self._on_worker_finished)
+        self._worker.error.connect(self.error.emit)
         
-        # Clean up signals for next run
+        self._thread.start()
+
+    def _on_worker_finished(self, count):
+        self.finished.emit(count)
+        self._cleanup()
+
+    def _cleanup(self):
+        if self._thread:
+            self._thread.quit()
+            self._thread.wait()
+            self._thread = None
+        if self._worker:
+            self._worker.deleteLater()
+            self._worker = None
+        
+        # Safely disconnect external listeners
         try:
-            self.finished.emit(total)
             self.progress.disconnect()
             self.finished.disconnect()
             self.error.disconnect()
-        except: pass
+        except:
+            pass
 
     def stop_scan(self):
-        if self.process:
-            self.process.kill()
+        if self._worker:
+            self._worker.cancel()
+        self._cleanup()
