@@ -111,8 +111,9 @@ def _section_label(text: str) -> QLabel:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PathLog")
-        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setWindowTitle("DirCache Explorer")
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.resize(1080, 720)
         self.setMinimumSize(1000, 700)
         self.setStyleSheet(STYLESHEET)
@@ -145,7 +146,7 @@ class MainWindow(QMainWindow):
         self.title_label = QLabel("DirCache Explorer")
         self.title_label.setObjectName("TitleLabel")
         self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet("color: #666666; font-size: 11px; font-family: 'Segoe UI Variable Display';")
+        self.title_label.setStyleSheet("color: #666666; font-size: 11px; font-family: 'Segoe UI Variable Display'; font-weight: 400;")
         
         # Center the title by using a container with a layout
         title_container = QWidget()
@@ -561,11 +562,12 @@ class MainWindow(QMainWindow):
         subtext = "#aaaaaa" if is_dark else "#666666"
         card = "#2d2d2d" if is_dark else "#fafafa"
         
+        is_full = self.isFullScreen() or self.isMaximized()
         self.central_widget.setStyleSheet(f"""
             #MainWindowContent {{
                 background: {bg};
-                border: 1px solid {border};
-                border-radius: {'0px' if self.isFullScreen() else '8px'};
+                border: {'none' if is_full else f'1px solid {border}'};
+                border-radius: {'0px' if is_full else '8px'};
             }}
         """)
         
@@ -573,7 +575,7 @@ class MainWindow(QMainWindow):
             #Sidebar {{
                 background: {sidebar};
                 border-right: 1px solid {border};
-                border-bottom-left-radius: {'0px' if self.isFullScreen() else '8px'};
+                border-bottom-left-radius: {'0px' if is_full else '8px'};
             }}
         """)
         
@@ -633,6 +635,11 @@ class MainWindow(QMainWindow):
         self.min_btn.setStyleSheet(btn_style)
         self.max_btn.setStyleSheet(btn_style)
         self.close_btn.setStyleSheet(btn_style + " QPushButton:hover { background: #c42b1c; color: white; }")
+
+    def resizeEvent(self, event):
+        # Update theme to adjust border radius on resize/maximize
+        self.set_theme(self.is_dark_mode())
+        super().resizeEvent(event)
 
     def changeEvent(self, event):
         if event.type() == QEvent.WindowStateChange:

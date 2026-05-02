@@ -1,6 +1,12 @@
 import sys
 import os
 import json
+
+if sys.platform == 'win32':
+    import ctypes
+    # Force Windows to treat this as a unique app for taskbar grouping
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('zeroteams.dircache.explorer.v1')
+
 from PySide6.QtWidgets import QApplication, QMessageBox
 from ui.main_window import MainWindow
 from database import Database
@@ -9,19 +15,26 @@ from ui.i18n import TRANSLATIONS
 
 CONFIG_FILE = "config.json"
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 
 class PathLogApp:
     def __init__(self):
-        self.app = QApplication(sys.argv)
-        self.window = MainWindow()
         from PySide6.QtGui import QIcon, QShortcut, QKeySequence
         from PySide6.QtCore import Qt
-        self.window.setWindowIcon(QIcon("logo.png"))
-        self.window.setWindowTitle("DirCache Explorer v1.1.0")
         
-        # Win11 Style: Custom title bar requires FramelessWindowHint
-        self.window.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
-        self.window.setAttribute(Qt.WA_TranslucentBackground)
+        self.app = QApplication(sys.argv)
+        # Use ICO on windows for taskbar reliability
+        icon_file = "logo.ico" if os.path.exists(resource_path("logo.ico")) else "logo.png"
+        self.app.setWindowIcon(QIcon(resource_path(icon_file)))
+        self.window = MainWindow()
+        self.window.setWindowTitle("DirCache Explorer v1.1.0")
 
         # Shortcuts
         QShortcut(QKeySequence("F11"), self.window, lambda: self.window.showFullScreen() if not self.window.isFullScreen() else self.window.showNormal())
