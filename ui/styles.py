@@ -300,14 +300,15 @@ QListWidget::item:hover {
 QScrollBar:vertical {
     border: none;
     background: transparent;
-    width: 6px;
-    margin: 2px;
+    width: 14px;
+    margin: 0px;
 }
 
 QScrollBar::handle:vertical {
     background: #c8c8c8;
-    border-radius: 3px;
+    border-radius: 7px;
     min-height: 30px;
+    margin: 2px;
 }
 
 QScrollBar::handle:vertical:hover {
@@ -322,14 +323,15 @@ QScrollBar::sub-line:vertical {
 QScrollBar:horizontal {
     border: none;
     background: transparent;
-    height: 6px;
-    margin: 2px;
+    height: 14px;
+    margin: 0px;
 }
 
 QScrollBar::handle:horizontal {
     background: #c8c8c8;
-    border-radius: 3px;
+    border-radius: 7px;
     min-width: 30px;
+    margin: 2px;
 }
 
 QScrollBar::add-line:horizontal,
@@ -347,3 +349,45 @@ QToolTip {
     font-size: 12px;
 }
 """
+
+def apply_dark_title_bar(window, is_dark: bool):
+    """
+    Forces the Windows title bar to match the dark/light theme.
+    """
+    if window.windowHandle() is None:
+        # Window not yet shown or created
+        return
+
+    import sys
+    if sys.platform != "win32":
+        return
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+        
+        hwnd = window.winId()
+        # DWMWA_USE_IMMERSIVE_DARK_MODE: 
+        #   20 for Windows 10 Build 19041+
+        #   19 for older Windows 10 versions
+        attribute = 20
+        dark = ctypes.c_int(1 if is_dark else 0)
+        
+        # Try attribute 20 first
+        res = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            wintypes.HWND(hwnd),
+            attribute,
+            ctypes.byref(dark),
+            ctypes.sizeof(dark)
+        )
+        if res != 0:
+            # Fallback to attribute 19
+            attribute = 19
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                wintypes.HWND(hwnd),
+                attribute,
+                ctypes.byref(dark),
+                ctypes.sizeof(dark)
+            )
+    except Exception:
+        pass

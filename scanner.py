@@ -97,7 +97,7 @@ class ScanWorker(QObject):
                     path = path_p.decode('utf-8')
                     parent = parent_p.decode('utf-8')
                     name = name_p.decode('utf-8')
-                    batch.append((path, parent, name, is_dir, size, mtime))
+                    batch.append((path, parent, name, is_dir, size, mtime, 0.0, None))
                     total[0] += 1
                     if len(batch) >= 500:
                         self._flush(conn, batch)
@@ -128,7 +128,7 @@ class ScanWorker(QObject):
                                         stat = entry.stat(follow_symlinks=False)
                                         batch.append((
                                             entry.path, curr, entry.name,
-                                            int(is_dir), stat.st_size, stat.st_mtime
+                                            int(is_dir), stat.st_size, stat.st_mtime, stat.st_ctime, None
                                         ))
                                         total[0] += 1
                                         if is_dir:
@@ -157,13 +157,18 @@ class ScanWorker(QObject):
             self.error.emit(str(e))
 
     def _flush(self, conn, batch):
-        with conn:
-            conn.executemany("""
-                INSERT INTO entries (path, parent, name, is_dir, size, mtime)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(path) DO UPDATE SET
-                    size=excluded.size, mtime=excluded.mtime
-            """, batch)
+        # Convert batch tuples to dictionaries for Database.upsert_entries
+        from database import Database
+        entries = []
+        for b in batch:
+            entries.append({
+                "path": b[0], "parent": b[1], "name": b[2],
+                "is_dir": b[3], "size": b[4], "mtime": b[5],
+                "ctime": b[6], "author": b[7]
+            })
+        
+        db = Database(self.db_path)
+        db.upsert_entries(entries)
         batch.clear()
 
 class Scanner(QObject):

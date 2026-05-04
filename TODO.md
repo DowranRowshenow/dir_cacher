@@ -8,11 +8,9 @@
         - New Files sub menu
         - Copy, Cut, Paste
         - Or just windows explorer context menu
-    2. Add delay to search bar query on type
-    2. Enter & Backspace actions
-    3. More Table Columns, and resize
-    4. Cache Folder Sizes
-    5. Filters
-    8. Search Raw SQL queries
-    10. Better Release Build method
+    2. Multiple selection in table (ctrl + shift functionalities for selections)
+    3. Better Fonts with antialiasing
+    5. Add filter types
+    6. Search Raw SQL queries
+    7. Better Release Build method
     

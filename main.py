@@ -83,9 +83,13 @@ class PathLogApp:
         self.window.table.set_data_source(self._get_children)
         self.window.table.status_updated.connect(self._on_table_status)
         self.window.table.home_requested.connect(lambda: self.refresh_explorer(force_home=True))
+        self.window.table.scan_requested.connect(self.start_targeted_scan)
         self.window.target_scan_btn.clicked.connect(lambda: self.start_targeted_scan(self.window.table._current_path))
 
         self.load_config()
+
+        # Connect Filters
+        self.window.filter_changed.connect(self._on_filter_changed)
 
         self.window.scan_btn.clicked.connect(self.start_full_scan)
         self.window.cancel_btn.clicked.connect(self.cancel_scan)
@@ -94,7 +98,14 @@ class PathLogApp:
         self.window.dir_pause_requested.connect(self.pause_targeted_scan)
         self.window.dir_pause_requested.connect(self.pause_targeted_scan)
         self.active_scanners = {}
-        self.window.search_bar.textChanged.connect(self.search)
+        
+        from PySide6.QtCore import QTimer
+        self.search_timer = QTimer()
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(300)
+        self.search_timer.timeout.connect(lambda: self.search(self.window.search_bar.text()))
+        self.window.search_bar.textChanged.connect(self.search_timer.start)
+        
         self.window.settings_panel.settings_changed.connect(self.save_config)
         self.window.settings_panel.open_cache_folder_requested.connect(self.open_cache_folder)
         self.window.settings_panel.clear_cache_requested.connect(self.clear_cache)
@@ -145,7 +156,8 @@ class PathLogApp:
             self._sync_workers.append(worker)
             worker.start()
             
-        return db.get_children(path)
+        file_types, min_mtime, max_mtime = self._get_filter_params()
+        return db.get_children(path, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime)
 
     def _on_dir_synced(self, path: str, entries: list[dict]):
         db = self._get_db_for_path(path)
@@ -154,7 +166,8 @@ class PathLogApp:
             # If still looking at this folder, update the UI
             if self.window.table._current_path == path and not self.window.search_bar.text():
                 # Store selection state if any
-                items = db.get_children(path)
+                file_types, min_mtime, max_mtime = self._get_filter_params()
+                items = db.get_children(path, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime)
                 self.window.table._load_items(items)
                 n = len(items)
                 self.window.table.status_updated.emit(
@@ -192,9 +205,27 @@ class PathLogApp:
             
             try:
                 self._export_data(target_dir, query, fmt, dest)
-                QMessageBox.information(self.window, "Export Success", f"Successfully exported data to:\n{dest}")
+                msg = QMessageBox(self.window)
+                msg.setIcon(QMessageBox.Information)
+                msg.setWindowTitle("Export Success")
+                msg.setText(f"Successfully exported data to:\n{dest}")
+                if self.window.is_dark:
+                    from ui.styles import apply_dark_title_bar
+                    msg.setStyleSheet("QMessageBox { background-color: #1e1e1e; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #333333; color: #ffffff; border: 1px solid #555555; padding: 4px 16px; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
+                    msg.show() # Must be shown to have a window handle
+                    apply_dark_title_bar(msg, True)
+                msg.exec()
             except Exception as e:
-                QMessageBox.critical(self.window, "Export Error", f"Failed to export data:\n{e}")
+                msg = QMessageBox(self.window)
+                msg.setIcon(QMessageBox.Critical)
+                msg.setWindowTitle("Export Error")
+                msg.setText(f"Failed to export data:\n{e}")
+                if self.window.is_dark:
+                    from ui.styles import apply_dark_title_bar
+                    msg.setStyleSheet("QMessageBox { background-color: #1e1e1e; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #333333; color: #ffffff; border: 1px solid #555555; padding: 4px 16px; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
+                    msg.show()
+                    apply_dark_title_bar(msg, True)
+                msg.exec()
 
     def _export_data(self, target_dir, query, fmt, dest):
         results = []
@@ -335,7 +366,12 @@ class PathLogApp:
         for d in settings.get("scan_dirs", []):
             db = self._get_db_for_path(d)
             last_scan = db.get_scan_status(d) if db else None
-            dir_infos.append({"path": d, "last_scan": last_scan})
+            item_count = db.get_item_count(d) if db else 0
+            dir_infos.append({
+                "path": d, 
+                "last_scan": last_scan,
+                "item_count": item_count
+            })
             
         self.window.update_scan_dirs(dir_infos)
 
@@ -506,6 +542,39 @@ class PathLogApp:
         QMessageBox.critical(self.window, "Scan Error", f"The scanner process failed to start or crashed.\n\nError: {message}")
 
     # ── Explorer navigation ───────────────────────────────
+    def _on_filter_changed(self):
+        # If filters are active, we treat it like a search (recursive)
+        # Even if search text is empty
+        self.refresh_explorer()
+
+    def _get_filter_params(self):
+        file_types = []
+        for name, cb in self.window.type_checkboxes.items():
+            if cb.isChecked():
+                file_types.append(name)
+        
+        date_text = self.window.date_filter.currentText()
+        
+        import time
+        from datetime import datetime, timedelta
+        
+        min_mtime = 0
+        max_mtime = 0
+        now = datetime.now()
+        
+        if date_text == "Today":
+            min_mtime = datetime(now.year, now.month, now.day).timestamp()
+        elif date_text == "Last 7 Days":
+            min_mtime = (now - timedelta(days=7)).timestamp()
+        elif date_text == "Last 30 Days":
+            min_mtime = (now - timedelta(days=30)).timestamp()
+        elif date_text == "This Year":
+            min_mtime = datetime(now.year, 1, 1).timestamp()
+        elif date_text == "Custom Range..." and self.window.custom_date_range:
+            min_mtime, max_mtime = self.window.custom_date_range
+            
+        return file_types, min_mtime, max_mtime
+
     def refresh_explorer(self, force_home=False):
         if not self.local_db and not self.shared_db:
             self.window.set_status("Open Settings to configure directories and cache paths.")
@@ -519,6 +588,18 @@ class PathLogApp:
             self.window.set_status("No directories configured — go to Settings.")
             self.window.item_count_label.setText("")
             self.window.table.show_virtual_roots([], label="Indexed Locations")
+            return
+
+        # Check if we should use search mode (recursive) vs browse mode (immediate children)
+        search_text = self.window.search_bar.text().strip()
+        file_types, min_mtime, max_mtime = self._get_filter_params()
+        
+        # User requested: "just show only matching types in current dir table. not whole search"
+        # So filters ALONE do not trigger search mode.
+        is_searching = bool(search_text)
+
+        if is_searching and not force_home:
+            self.search(search_text)
             return
 
         # Check if current path is still within configured dirs
@@ -565,11 +646,14 @@ class PathLogApp:
     def search(self, text: str):
         if not self.local_db and not self.shared_db:
             return
-        if not text:
+        
+        file_types, min_mtime = self._get_filter_params()
+        
+        # If no text AND no filters, go back to browsing
+        if not text and not file_types and min_mtime == 0:
             self.refresh_explorer()
             return
-        if len(text) < 2:
-            return
+            
         # Always search recursively within current dir
         current_path = self.window.table._current_path
         is_global = self.window.search_shared_cb.isChecked()
@@ -584,11 +668,13 @@ class PathLogApp:
                     seen_paths.add(r["path"])
                     results.append(r)
 
+        file_types, min_mtime = self._get_filter_params()
+
         if current_path:
             # Scoped: search recursively inside the current directory
             db = self._get_db_for_path(current_path)
             if db:
-                _add_results(db.search(text, parent_prefix=current_path))
+                _add_results(db.search(text, parent_prefix=current_path, file_types=file_types, min_mtime=min_mtime))
 
             # Global: also search every other configured scan dir via correct routing
             if is_global:
@@ -599,17 +685,17 @@ class PathLogApp:
                         continue  # already covered by current_path scope
                     db = self._get_db_for_path(d)
                     if db:
-                        _add_results(db.search(text, parent_prefix=d))
+                        _add_results(db.search(text, parent_prefix=d, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime))
         else:
             # Home view: search all configured dirs, each routed to correct DB
             for d in scan_dirs:
                 db = self._get_db_for_path(d)
                 if db:
-                    _add_results(db.search(text, parent_prefix=d))
+                    _add_results(db.search(text, parent_prefix=d, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime))
 
             # Global: also search the whole network DB without prefix
             if is_global and self.shared_db:
-                _add_results(self.shared_db.search(text))
+                _add_results(self.shared_db.search(text, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime))
 
         self.window.table.set_search_results(results, text)
 
@@ -620,14 +706,24 @@ class PathLogApp:
             os.startfile(dir_path)
 
     def clear_cache(self):
-        ret = QMessageBox.warning(
-            self.window, "Clear Local Cache",
+        msg = QMessageBox(self.window)
+        msg.setIcon(QMessageBox.Warning)
+        msg.setWindowTitle("Clear Local Cache")
+        msg.setText(
             "⚠️  This will permanently delete all locally indexed file metadata.\n"
             "Network path indexes (network_cache.db or shared DB) are NOT affected.\n\n"
-            "This action cannot be undone. Continue?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No  # Default to No for safety
+            "This action cannot be undone. Continue?"
         )
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setDefaultButton(QMessageBox.No)
+        
+        if self.window.is_dark:
+            from ui.styles import apply_dark_title_bar
+            msg.setStyleSheet("QMessageBox { background-color: #1e1e1e; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #333333; color: #ffffff; border: 1px solid #555555; padding: 4px 16px; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
+            msg.show()
+            apply_dark_title_bar(msg, True)
+
+        ret = msg.exec()
         if ret == QMessageBox.Yes:
             if self.local_db:
                 self.local_db.close()
@@ -644,7 +740,16 @@ class PathLogApp:
             # Re-init fresh empty local DB (keep shared_db as-is)
             self.local_db = Database(path)
             self.refresh_explorer(force_home=True)
-            QMessageBox.information(self.window, "Done", "Local cache cleared successfully.\nNetwork indexes are unchanged.")
+            
+            done_msg = QMessageBox(self.window)
+            done_msg.setWindowTitle("Done")
+            done_msg.setText("Local cache cleared successfully.\nNetwork indexes are unchanged.")
+            if self.window.is_dark:
+                from ui.styles import apply_dark_title_bar
+                done_msg.setStyleSheet("QMessageBox { background-color: #1e1e1e; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #333333; color: #ffffff; border: 1px solid #555555; padding: 4px 16px; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
+                done_msg.show()
+                apply_dark_title_bar(done_msg, True)
+            done_msg.exec()
 
     def run(self):
         self.window.show()

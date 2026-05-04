@@ -49,6 +49,7 @@ pub type EntryCallback = extern "C" fn(
     is_dir: i32,
     size: i64,
     mtime: f64,
+    ctime: f64,
 );
 
 #[no_mangle]
@@ -134,6 +135,13 @@ pub extern "C" fn scan_directory(
                 .map(|d| d.as_secs_f64())
                 .unwrap_or(0.0);
 
+            let ctime = metadata
+                .created()
+                .unwrap_or(SystemTime::UNIX_EPOCH)
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+
             if is_dir == 1 {
                 stack.push(path_str.to_string());
             }
@@ -152,7 +160,7 @@ pub extern "C" fn scan_directory(
                 Err(_) => continue,
             };
 
-            cb(c_path.as_ptr(), c_parent.as_ptr(), c_name.as_ptr(), is_dir, size, mtime);
+            cb(c_path.as_ptr(), c_parent.as_ptr(), c_name.as_ptr(), is_dir, size, mtime, ctime);
             total += 1;
         }
     }

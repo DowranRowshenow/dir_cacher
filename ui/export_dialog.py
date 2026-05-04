@@ -11,6 +11,11 @@ class ExportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(t.get("export_wizard", "Export Wizard"))
         self.setMinimumWidth(450)
+
+        if is_dark:
+            from ui.styles import apply_dark_title_bar
+            self.show()
+            apply_dark_title_bar(self, True)
         
         bg = "#1e1e1e" if is_dark else "#ffffff"
         fg = "#ffffff" if is_dark else "#1a1a1a"
