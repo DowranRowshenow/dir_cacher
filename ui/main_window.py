@@ -112,10 +112,14 @@ def _section_label(text: str) -> QLabel:
 # ──────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
     dir_scan_requested = Signal(str)
+    dir_cancel_requested = Signal(str)
+    dir_pause_requested = Signal(str, bool)
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DirCache Explorer")
+        self.dir_ui_map = {}
+        self.is_dark = False
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.resize(1080, 720)
@@ -559,6 +563,8 @@ class MainWindow(QMainWindow):
         title.setFont(QFont("Segoe UI Variable Text", 14, QFont.Bold))
         title.setStyleSheet("color: #1a1a1a; background: transparent;")
         self.scan_dirs_layout.addWidget(title)
+        
+        self.dir_ui_map.clear()
 
         for info in dir_infos:
             d = info.get("path")
@@ -598,11 +604,95 @@ class MainWindow(QMainWindow):
                 }
                 QPushButton:hover { background: #e0e0e0; }
             """)
-            btn.clicked.connect(lambda _, path=d: self.dir_scan_requested.emit(path))
+            btn.clicked.connect(lambda _, path=d: self._on_dir_btn_clicked(path))
+            
+            pause_btn = QPushButton("Pause")
+            pause_btn.setObjectName("ScanCardPauseBtn")
+            pause_btn.setFixedHeight(28)
+            pause_btn.setVisible(False)
+            pause_btn.setStyleSheet("""
+                QPushButton {
+                    background: #fff3cd; border: 1px solid #ffe69c; border-radius: 4px;
+                    padding: 0 16px; font-weight: 500; color: #664d03;
+                }
+                QPushButton:hover { background: #ffe69c; }
+            """)
+            pause_btn.clicked.connect(lambda _, path=d: self._on_pause_btn_clicked(path))
             
             row_layout.addLayout(text_col, 1)
+            row_layout.addWidget(pause_btn, 0)
             row_layout.addWidget(btn, 0)
             self.scan_dirs_layout.addWidget(row)
+            
+            self.dir_ui_map[d] = {'time_lbl': time_lbl, 'btn': btn, 'pause_btn': pause_btn}
+
+    def _on_dir_btn_clicked(self, path: str):
+        btn = self.dir_ui_map[path]['btn']
+        if btn.text() == "Scan":
+            self.dir_scan_requested.emit(path)
+        else:
+            self.dir_cancel_requested.emit(path)
+
+    def _on_pause_btn_clicked(self, path: str):
+        pause_btn = self.dir_ui_map[path]['pause_btn']
+        is_paused = pause_btn.text() == "Resume"
+        # We want to pause if it's currently running, meaning is_paused is false.
+        # But if it's "Resume", we want to unpause.
+        if is_paused:
+            pause_btn.setText("Pause")
+            self.dir_pause_requested.emit(path, False)
+        else:
+            pause_btn.setText("Resume")
+            self.dir_pause_requested.emit(path, True)
+
+    def set_dir_scan_state(self, path: str, is_scanning: bool, message: str):
+        if path not in self.dir_ui_map:
+            return
+        
+        ui = self.dir_ui_map[path]
+        ui['time_lbl'].setText(message)
+        
+        if is_scanning:
+            ui['btn'].setText("Cancel")
+            ui['pause_btn'].setVisible(True)
+            # Apply cancel theme dynamically based on mode
+            if self.is_dark:
+                ui['btn'].setStyleSheet("""
+                    QPushButton {
+                        background: #6b2828; border: 1px solid #8c3636; border-radius: 4px;
+                        padding: 0 16px; font-weight: 500; color: #ffffff;
+                    }
+                    QPushButton:hover { background: #8c3636; }
+                """)
+                ui['pause_btn'].setStyleSheet("""
+                    QPushButton {
+                        background: #444444; border: 1px solid #666666; border-radius: 4px;
+                        padding: 0 16px; font-weight: 500; color: #ffffff;
+                    }
+                    QPushButton:hover { background: #555555; }
+                """)
+            else:
+                ui['btn'].setStyleSheet("""
+                    QPushButton {
+                        background: #ffebe9; border: 1px solid #fd8a8b; border-radius: 4px;
+                        padding: 0 16px; font-weight: 500; color: #d1242f;
+                    }
+                    QPushButton:hover { background: #ffcecb; }
+                """)
+                ui['pause_btn'].setStyleSheet("""
+                    QPushButton {
+                        background: #fff3cd; border: 1px solid #ffe69c; border-radius: 4px;
+                        padding: 0 16px; font-weight: 500; color: #664d03;
+                    }
+                    QPushButton:hover { background: #ffe69c; }
+                """)
+        else:
+            ui['btn'].setText("Scan")
+            ui['pause_btn'].setVisible(False)
+            ui['pause_btn'].setText("Pause")
+            # The general theme update will restore the default button style, 
+            # but we force the standard one here so it doesn't stay red.
+            self.set_theme(self.is_dark)
 
     # ── Public API ────────────────────────────────────────
     def set_status(self, text: str):
@@ -648,6 +738,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.update_translations(t)
 
     def set_theme(self, is_dark: bool):
+        self.is_dark = is_dark
         bg = "#1e1e1e" if is_dark else "#ffffff"
         fg = "#ffffff" if is_dark else "#1a1a1a"
         sidebar = "#252525" if is_dark else "#f3f3f3"

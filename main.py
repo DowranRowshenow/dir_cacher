@@ -87,10 +87,12 @@ class PathLogApp:
 
         self.load_config()
 
-        # Signals
         self.window.scan_btn.clicked.connect(self.start_full_scan)
         self.window.cancel_btn.clicked.connect(self.cancel_scan)
         self.window.dir_scan_requested.connect(self.start_targeted_scan)
+        self.window.dir_cancel_requested.connect(self.cancel_targeted_scan)
+        self.window.dir_pause_requested.connect(self.pause_targeted_scan)
+        self.active_scanners = {}
         self.window.search_bar.textChanged.connect(self.search)
         self.window.settings_panel.settings_changed.connect(self.save_config)
         self.window.settings_panel.open_cache_folder_requested.connect(self.open_cache_folder)
@@ -200,6 +202,8 @@ class PathLogApp:
             self.window.settings_panel.dir_list.clear()
             for d in cfg.get("scan_dirs", []):
                 self.window.settings_panel.dir_list.addItem(d)
+            self.window.settings_panel.blockSignals(False)
+            
             # Collect scan info with timestamps
             self._init_dbs(local_path, cfg.get("shared_cache_path"))
             
@@ -298,16 +302,24 @@ class PathLogApp:
             self._scan_sequential(remaining, total_count)
             return
 
+        def _on_progress(msg):
+            self.window.set_status(f"Scanning: {path} - {msg}")
+            self.window.set_dir_scan_state(path, True, msg)
+
         def _on_finish(count):
             import time
             db.update_scan_status(path, time.time())
+            if path in self.active_scanners:
+                del self.active_scanners[path]
+            self._update_scan_ui()
             self._scan_sequential(remaining, total_count + count)
 
-        # Re-init scanner pointing at the correct DB
-        self.scanner = Scanner(db)
-        self.scanner.start_scan(
+        scanner = Scanner(db)
+        self.active_scanners[path] = scanner
+        self.window.set_dir_scan_state(path, True, "Starting...")
+        scanner.start_scan(
             [path],
-            progress_callback=lambda p: self.window.set_status(f"Scanning: {p}"),
+            progress_callback=_on_progress,
             finished_callback=_on_finish,
             error_callback=self.on_scan_error,
         )
@@ -316,34 +328,65 @@ class PathLogApp:
         db = self._get_db_for_path(path)
         if not path or not db:
             return
-        # Silent scan: only show the slim progress bar on the explorer page
+            
+        if path in self.active_scanners:
+            return
+            
         self.window.progress_bar.setVisible(True)
-        self.window.target_scan_btn.setEnabled(False)
+        self.window.set_dir_scan_state(path, True, "Starting...")
         
+        def _on_progress(msg):
+            self.window.set_dir_scan_state(path, True, msg)
+            
         def _on_finish(count):
             import time
             db.update_scan_status(path, time.time())
+            if path in self.active_scanners:
+                del self.active_scanners[path]
             self.on_targeted_scan_finished(count)
 
-        self.scanner = Scanner(db)  # Fresh scanner pointing at correct DB
-        self.scanner.start_scan(
+        def _on_error(msg):
+            if path in self.active_scanners:
+                del self.active_scanners[path]
+            self._update_scan_ui()
+            self.on_scan_error(msg)
+
+        scanner = Scanner(db)
+        self.active_scanners[path] = scanner
+        scanner.start_scan(
             [path],
-            progress_callback=None,
+            progress_callback=_on_progress,
             finished_callback=_on_finish,
-            error_callback=self.on_scan_error,
+            error_callback=_on_error,
         )
+
+    def cancel_targeted_scan(self, path: str):
+        if path in self.active_scanners:
+            self.active_scanners[path].stop_scan()
+            del self.active_scanners[path]
+        self._update_scan_ui()
+
+    def pause_targeted_scan(self, path: str, is_paused: bool):
+        if path in self.active_scanners:
+            scanner = self.active_scanners[path]
+            if is_paused:
+                scanner.pause_scan()
+                self.window.set_dir_scan_state(path, True, "Paused")
+            else:
+                scanner.resume_scan()
+                self.window.set_dir_scan_state(path, True, "Resuming...")
 
     def on_targeted_scan_finished(self, count: int):
         self.window.progress_bar.setVisible(False)
-        self.window.target_scan_btn.setEnabled(True)
         self._update_scan_ui()
-        # Just refresh the current view
         self.refresh_explorer()
 
     def cancel_scan(self):
-        if self.scanner:
-            self.scanner.stop_scan()
+        for scanner in self.active_scanners.values():
+            scanner.stop_scan()
+        self.active_scanners.clear()
         self.window.set_progress(False, "Scan cancelled.")
+        self._update_scan_ui()
 
     def on_scan_finished(self, count: int):
         self.window.set_progress(False, f"Done — {count:,} items indexed.")
@@ -352,9 +395,11 @@ class PathLogApp:
 
     def on_scan_error(self, message: str):
         self.window.set_progress(False, "Scan failed.")
-        # Stop any further sequential scans
-        if self.scanner:
-            self.scanner.stop_scan()
+        for scanner in self.active_scanners.values():
+            scanner.stop_scan()
+        self.active_scanners.clear()
+        self._update_scan_ui()
+        from PySide6.QtWidgets import QMessageBox
         QMessageBox.critical(self.window, "Scan Error", f"The scanner process failed to start or crashed.\n\nError: {message}")
 
     # ── Explorer navigation ───────────────────────────────

@@ -8,6 +8,7 @@
         - New Files sub menu
         - Copy, Cut, Paste
         - Or just windows explorer context menu
+    2. Enter & Backspace actions
     2. Fully background thread scans without freezing UI and crashing
     3. More Table Columns
     4. Cache Folder Sizes

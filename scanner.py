@@ -27,8 +27,12 @@ try:
     _scanner_lib.cancel_scan.argtypes = [c_void_p]
     _scanner_lib.free_cancel_flag.argtypes = [c_void_p]
     
+    _scanner_lib.create_pause_flag.restype = c_void_p
+    _scanner_lib.set_pause_flag.argtypes = [c_void_p, ctypes.c_bool]
+    _scanner_lib.free_pause_flag.argtypes = [c_void_p]
+    
     ENTRY_CALLBACK = CFUNCTYPE(None, c_char_p, c_char_p, c_char_p, c_int, c_int64, c_double)
-    _scanner_lib.scan_directory.argtypes = [c_char_p, c_void_p, ENTRY_CALLBACK]
+    _scanner_lib.scan_directory.argtypes = [c_char_p, c_void_p, c_void_p, ENTRY_CALLBACK]
     _scanner_lib.scan_directory.restype = c_int64
 except Exception:
     _scanner_lib = None
@@ -45,9 +49,12 @@ class ScanWorker(QObject):
         self.root_paths = root_paths
         if _scanner_lib:
             self._cancel_flag = _scanner_lib.create_cancel_flag()
+            self._pause_flag = _scanner_lib.create_pause_flag()
         else:
             self._cancel_flag = None
+            self._pause_flag = None
             self._is_cancelled = False
+            self._is_paused = False
 
     def cancel(self):
         if self._cancel_flag:
@@ -55,9 +62,23 @@ class ScanWorker(QObject):
         else:
             self._is_cancelled = True
 
+    def pause(self):
+        if self._pause_flag:
+            _scanner_lib.set_pause_flag(self._pause_flag, True)
+        else:
+            self._is_paused = True
+
+    def resume(self):
+        if self._pause_flag:
+            _scanner_lib.set_pause_flag(self._pause_flag, False)
+        else:
+            self._is_paused = False
+
     def __del__(self):
         if self._cancel_flag:
             _scanner_lib.free_cancel_flag(self._cancel_flag)
+        if hasattr(self, '_pause_flag') and self._pause_flag:
+            _scanner_lib.free_pause_flag(self._pause_flag)
 
     def run(self):
         try:
@@ -68,7 +89,9 @@ class ScanWorker(QObject):
             
             total = [0]
             batch = []
-            
+            import time as _time
+            last_emit_time = [0.0]
+
             def _entry_callback(path_p, parent_p, name_p, is_dir, size, mtime):
                 try:
                     path = path_p.decode('utf-8')
@@ -78,7 +101,10 @@ class ScanWorker(QObject):
                     total[0] += 1
                     if len(batch) >= 500:
                         self._flush(conn, batch)
-                        self.progress.emit(f"Indexed {total[0]} items...")
+                        now = _time.time()
+                        if now - last_emit_time[0] > 0.1:
+                            self.progress.emit(f"Indexed {total[0]} items...")
+                            last_emit_time[0] = now
                 except Exception:
                     pass
 
@@ -88,6 +114,10 @@ class ScanWorker(QObject):
                     if self._is_cancelled: break
                     stack = [root_dir]
                     while stack and not self._is_cancelled:
+                        while self._is_paused:
+                            if self._is_cancelled: break
+                            _time.sleep(0.05)
+                        if self._is_cancelled: break
                         curr = stack.pop()
                         try:
                             with os.scandir(curr) as it:
@@ -105,7 +135,10 @@ class ScanWorker(QObject):
                                             stack.append(entry.path)
                                         if len(batch) >= 500:
                                             self._flush(conn, batch)
-                                            self.progress.emit(f"Indexed {total[0]} items...")
+                                            now = _time.time()
+                                            if now - last_emit_time[0] > 0.1:
+                                                self.progress.emit(f"Indexed {total[0]} items...")
+                                                last_emit_time[0] = now
                                     except (PermissionError, OSError): continue
                         except (PermissionError, OSError): continue
             else:
@@ -113,7 +146,7 @@ class ScanWorker(QObject):
                 c_callback = ENTRY_CALLBACK(_entry_callback)
                 for root_dir in self.root_paths:
                     c_root = root_dir.encode('utf-8')
-                    _scanner_lib.scan_directory(c_root, self._cancel_flag, c_callback)
+                    _scanner_lib.scan_directory(c_root, self._cancel_flag, self._pause_flag, c_callback)
 
             if batch:
                 self._flush(conn, batch)
@@ -190,3 +223,11 @@ class Scanner(QObject):
         if self._worker:
             self._worker.cancel()
         self._cleanup()
+
+    def pause_scan(self):
+        if self._worker:
+            self._worker.pause()
+
+    def resume_scan(self):
+        if self._worker:
+            self._worker.resume()

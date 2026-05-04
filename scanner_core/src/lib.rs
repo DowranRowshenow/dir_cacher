@@ -23,6 +23,25 @@ pub extern "C" fn free_cancel_flag(flag: *mut AtomicBool) {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn create_pause_flag() -> *mut AtomicBool {
+    Box::into_raw(Box::new(AtomicBool::new(false)))
+}
+
+#[no_mangle]
+pub extern "C" fn set_pause_flag(flag: *mut AtomicBool, paused: bool) {
+    if !flag.is_null() {
+        unsafe { (*flag).store(paused, Ordering::Relaxed) };
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn free_pause_flag(flag: *mut AtomicBool) {
+    if !flag.is_null() {
+        unsafe { drop(Box::from_raw(flag)) };
+    }
+}
+
 pub type EntryCallback = extern "C" fn(
     path: *const c_char,
     parent: *const c_char,
@@ -36,6 +55,7 @@ pub type EntryCallback = extern "C" fn(
 pub extern "C" fn scan_directory(
     root_path: *const c_char,
     cancel_flag: *mut AtomicBool,
+    pause_flag: *mut AtomicBool,
     callback: Option<EntryCallback>,
 ) -> i64 {
     let root = match unsafe { CStr::from_ptr(root_path) }.to_str() {
@@ -47,6 +67,12 @@ pub extern "C" fn scan_directory(
         return -1;
     } else {
         unsafe { &*cancel_flag }
+    };
+
+    let pause = if pause_flag.is_null() {
+        return -1;
+    } else {
+        unsafe { &*pause_flag }
     };
 
     let cb = match callback {
@@ -68,6 +94,15 @@ pub extern "C" fn scan_directory(
         };
 
         for entry_res in read_dir {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
+            while pause.load(Ordering::Relaxed) {
+                if cancel.load(Ordering::Relaxed) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
             if cancel.load(Ordering::Relaxed) {
                 break;
             }
