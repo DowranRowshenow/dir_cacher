@@ -371,6 +371,20 @@ class MainWindow(QMainWindow):
 
         search_row.addWidget(self.search_bar, 1)
         search_row.addWidget(self.target_scan_btn)
+        
+        self.export_btn = QPushButton()
+        self.export_btn.setIcon(qta.icon("fa5s.file-export", color="white"))
+        self.export_btn.setIconSize(QSize(14, 14))
+        self.export_btn.setFixedSize(34, 34)
+        self.export_btn.setToolTip("Export Wizard")
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #107c10; border: none; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #0b5a0b; }
+            QPushButton:pressed { background-color: #094509; }
+        """)
+        search_row.addWidget(self.export_btn)
         layout.addLayout(search_row)
         layout.addSpacing(10)
 

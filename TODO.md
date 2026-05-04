@@ -8,13 +8,11 @@
         - New Files sub menu
         - Copy, Cut, Paste
         - Or just windows explorer context menu
+    2. Add delay to search bar query on type
     2. Enter & Backspace actions
-    2. Fully background thread scans without freezing UI and crashing
-    3. More Table Columns
+    3. More Table Columns, and resize
     4. Cache Folder Sizes
     5. Filters
-    6. Export to csv, excel options
-    7. Search seperator symbol
-    8. Search SQL queries
+    8. Search Raw SQL queries
     10. Better Release Build method
     

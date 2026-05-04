@@ -92,12 +92,14 @@ class PathLogApp:
         self.window.dir_scan_requested.connect(self.start_targeted_scan)
         self.window.dir_cancel_requested.connect(self.cancel_targeted_scan)
         self.window.dir_pause_requested.connect(self.pause_targeted_scan)
+        self.window.dir_pause_requested.connect(self.pause_targeted_scan)
         self.active_scanners = {}
         self.window.search_bar.textChanged.connect(self.search)
         self.window.settings_panel.settings_changed.connect(self.save_config)
         self.window.settings_panel.open_cache_folder_requested.connect(self.open_cache_folder)
         self.window.settings_panel.clear_cache_requested.connect(self.clear_cache)
         self.window.search_shared_cb.stateChanged.connect(lambda: self.search(self.window.search_bar.text()))
+        self.window.export_btn.clicked.connect(self.open_export_wizard)
 
         self.refresh_explorer()
 
@@ -166,6 +168,107 @@ class PathLogApp:
         # Update target scan button visibility/enabled state
         curr = self.window.table._current_path
         self.window.target_scan_btn.setEnabled(bool(curr))
+
+    def open_export_wizard(self):
+        from ui.export_dialog import ExportDialog
+        from PySide6.QtWidgets import QMessageBox
+        from ui.i18n import TRANSLATIONS
+        
+        settings = self.window.settings_panel.get_settings()
+        scan_dirs = settings.get("scan_dirs", [])
+        lang = settings.get("language", "en")
+        t = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+        
+        dialog = ExportDialog(scan_dirs, self.window.is_dark, t, self.window)
+        # Pre-fill query with current search bar content
+        dialog.query_edit.setText(self.window.search_bar.text())
+        
+        if dialog.exec():
+            params = dialog.get_export_params()
+            target_dir = params["directory"]
+            query = params["query"]
+            fmt = params["format"]
+            dest = params["destination"]
+            
+            try:
+                self._export_data(target_dir, query, fmt, dest)
+                QMessageBox.information(self.window, "Export Success", f"Successfully exported data to:\n{dest}")
+            except Exception as e:
+                QMessageBox.critical(self.window, "Export Error", f"Failed to export data:\n{e}")
+
+    def _export_data(self, target_dir, query, fmt, dest):
+        results = []
+        
+        def _fetch_from_db(db, t_dir):
+            if not db: return
+            conn = db.conn
+            cursor = conn.cursor()
+            sql = "SELECT path, parent, name, is_dir, size, mtime FROM entries"
+            params = []
+            
+            conditions = []
+            if t_dir:
+                conditions.append("(path = ? OR parent LIKE ?)")
+                params.extend([t_dir, f"{t_dir}%"])
+                
+            if query:
+                terms = [t.strip() for t in query.split("&") if t.strip()]
+                for term in terms:
+                    conditions.append("name LIKE ?")
+                    params.append(f"%{term}%")
+                    
+            if conditions:
+                sql += " WHERE " + " AND ".join(conditions)
+                
+            cursor.execute(sql, params)
+            for row in cursor.fetchall():
+                results.append({
+                    "Path": row[0],
+                    "Parent": row[1],
+                    "Name": row[2],
+                    "Is Directory": "Yes" if row[3] else "No",
+                    "Size (Bytes)": row[4],
+                    "Modified Time": row[5]
+                })
+
+        if target_dir:
+            _fetch_from_db(self._get_db_for_path(target_dir), target_dir)
+        else:
+            _fetch_from_db(self.local_db, None)
+            _fetch_from_db(self.shared_db, None)
+            
+        import csv
+        from datetime import datetime
+
+        if fmt == "csv":
+            with open(dest, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.DictWriter(f, fieldnames=["Path", "Parent", "Name", "Is Directory", "Size (Bytes)", "Modified Time"])
+                writer.writeheader()
+                for r in results:
+                    mtime = r["Modified Time"]
+                    r["Modified Time"] = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S') if mtime else ""
+                    writer.writerow(r)
+        elif fmt == "xlsx":
+            try:
+                import openpyxl
+            except ImportError:
+                raise Exception("openpyxl is not installed. Run 'pip install openpyxl'.")
+            
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Exported Data"
+            
+            headers = ["Path", "Parent", "Name", "Is Directory", "Size (Bytes)", "Modified Time"]
+            ws.append(headers)
+            
+            for r in results:
+                mtime = r["Modified Time"]
+                mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S') if mtime else ""
+                ws.append([
+                    r["Path"], r["Parent"], r["Name"], r["Is Directory"], r["Size (Bytes)"], mtime_str
+                ])
+                
+            wb.save(dest)
 
     def _get_local_db_path(self):
         appdata = os.environ.get("APPDATA", os.path.expanduser("~"))

@@ -25,7 +25,15 @@ TRANSLATIONS = {
         "scan_desc": "Index selected directories and write metadata to the shared SQLite cache.",
         "scan_banner": "Scanning runs entirely in the background.",
         "shared_search": "Global",
-        "clear_cache": "Clear Cache"
+        "clear_cache": "Clear Cache",
+        "export_wizard": "Export Wizard",
+        "target_dir": "Target Directory:",
+        "all_dirs": "All Configured Directories",
+        "search_query_opt": "Search Query (optional):",
+        "export_format": "Export Format:",
+        "dest_file": "Destination File:",
+        "browse": "Browse...",
+        "export_btn_txt": "Export"
     },
     "tr": {
         "explorer": "Gezgin",
@@ -52,7 +60,15 @@ TRANSLATIONS = {
         "scan_desc": "Seçili dizinleri indeksleyin ve meta verileri paylaşılan SQLite önbelleğine yazın.",
         "scan_banner": "Tarama tamamen arka planda çalışır.",
         "shared_search": "Küresel",
-        "clear_cache": "Önbelleği Temizle"
+        "clear_cache": "Önbelleği Temizle",
+        "export_wizard": "Dışa Aktarma Sihirbazı",
+        "target_dir": "Hedef Dizin:",
+        "all_dirs": "Tüm Yapılandırılmış Dizinler",
+        "search_query_opt": "Arama Sorgusu (isteğe bağlı):",
+        "export_format": "Dışa Aktarma Formatı:",
+        "dest_file": "Hedef Dosya:",
+        "browse": "Gözat...",
+        "export_btn_txt": "Dışa Aktar"
     },
     "ru": {
         "explorer": "Проводник",
@@ -79,7 +95,15 @@ TRANSLATIONS = {
         "scan_desc": "Индексируйте выбранные каталоги и записывайте метаданные в общий кеш SQLite.",
         "scan_banner": "Сканирование выполняется в фоновом режиме.",
         "shared_search": "Глобальный",
-        "clear_cache": "Очистить кэш"
+        "clear_cache": "Очистить кэш",
+        "export_wizard": "Мастер экспорта",
+        "target_dir": "Целевой каталог:",
+        "all_dirs": "Все настроенные каталоги",
+        "search_query_opt": "Поисковый запрос (необязательно):",
+        "export_format": "Формат экспорта:",
+        "dest_file": "Файл назначения:",
+        "browse": "Обзор...",
+        "export_btn_txt": "Экспорт"
     },
     "tk": {
         "explorer": "Gözden geçiriji",
@@ -106,6 +130,14 @@ TRANSLATIONS = {
         "scan_desc": "Saýlanan kataloglary indeksirle we meta maglumatlary paýlaşylan SQLite kükine ýaz.",
         "scan_banner": "Barlag doly arka planda işleýär.",
         "shared_search": "Global",
-        "clear_cache": "Keşarany Arassala"
+        "clear_cache": "Keşarany Arassala",
+        "export_wizard": "Eksport ussasy",
+        "target_dir": "Maksatly bukjalar:",
+        "all_dirs": "Ähli sazlanan bukjalar",
+        "search_query_opt": "Gözleg sözlemi (meýletin):",
+        "export_format": "Eksport formady:",
+        "dest_file": "Maksatly faýl:",
+        "browse": "Gözden geçir...",
+        "export_btn_txt": "Eksport"
     }
 }
