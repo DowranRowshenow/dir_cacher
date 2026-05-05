@@ -141,6 +141,7 @@ class Database:
         file_types: List[str] = None,
         min_mtime: float = 0,
         max_mtime: float = 0,
+        case_sensitive: bool = False,
     ) -> List[Dict]:
         terms = [t.strip() for t in query.split("&") if t.strip()]
         if not terms and not file_types and min_mtime == 0:
@@ -148,9 +149,10 @@ class Database:
 
         sql = "SELECT path, parent, name, is_dir, size, mtime FROM entries WHERE 1=1"
         params = []
+        op = "GLOB" if case_sensitive else "LIKE"
         for term in terms:
-            sql += " AND name LIKE ?"
-            params.append(f"%{term}%")
+            sql += f" AND name {op} ?"
+            params.append(f"*{term}*" if case_sensitive else f"%{term}%")
 
         if file_types:
             all_exts = []

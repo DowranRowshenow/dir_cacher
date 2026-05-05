@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyleOptionViewItem,
 )
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import Qt, QSize, Signal, QEvent
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -351,6 +351,9 @@ class ExplorerTable(QWidget):
         self._highlight_delegate = HighlightDelegate(self._table)
         self._table.setItemDelegate(self._highlight_delegate)
 
+        # Install event filter on viewport to catch wheel events before the table handles them
+        self._table.viewport().installEventFilter(self)
+
         layout.addWidget(self._table)
 
         # Navigation state
@@ -657,16 +660,18 @@ class ExplorerTable(QWidget):
         menu.exec_(self._table.horizontalHeader().mapToGlobal(pos))
 
     def wheelEvent(self, event):
-        if event.modifiers() & Qt.ShiftModifier:
-            # Horizontal scroll only
-            delta = event.angleDelta().y() or event.angleDelta().x()
-            # Scroll speed multiplier
-            self._table.horizontalScrollBar().setValue(
-                self._table.horizontalScrollBar().value() - delta
-            )
-            event.accept()
-        else:
-            super().wheelEvent(event)
+        # We handle this via eventFilter on the viewport now
+        super().wheelEvent(event)
+
+    def eventFilter(self, source, event):
+        if source == self._table.viewport() and event.type() == QEvent.Wheel:
+            if event.modifiers() & Qt.ShiftModifier:
+                delta = event.angleDelta().y() or event.angleDelta().x()
+                self._table.horizontalScrollBar().setValue(
+                    self._table.horizontalScrollBar().value() - delta
+                )
+                return True # Stop propagation
+        return super().eventFilter(source, event)
 
     def _context_menu(self, pos):
         item = self._table.itemAt(pos)

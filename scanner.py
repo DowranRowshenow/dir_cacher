@@ -43,10 +43,11 @@ class ScanWorker(QObject):
     finished = Signal(int)
     error = Signal(str)
 
-    def __init__(self, db_path: str, root_paths: list[str]):
+    def __init__(self, db_path: str, root_paths: list[str], recursive: bool = True):
         super().__init__()
         self.db_path = db_path
         self.root_paths = root_paths
+        self.recursive = recursive
         if _scanner_lib:
             self._cancel_flag = _scanner_lib.create_cancel_flag()
             self._pause_flag = _scanner_lib.create_pause_flag()
@@ -131,7 +132,7 @@ class ScanWorker(QObject):
                                             int(is_dir), stat.st_size, stat.st_mtime, stat.st_ctime, None
                                         ))
                                         total[0] += 1
-                                        if is_dir:
+                                        if is_dir and self.recursive:
                                             stack.append(entry.path)
                                         if len(batch) >= 500:
                                             self._flush(conn, batch)
@@ -182,12 +183,12 @@ class Scanner(QObject):
         self._thread = None
         self._worker = None
 
-    def start_scan(self, root_paths: list[str], progress_callback=None, finished_callback=None, error_callback=None):
+    def start_scan(self, root_paths: list[str], progress_callback=None, finished_callback=None, error_callback=None, recursive: bool = True):
         if self._thread and self._thread.isRunning():
             return
 
         self._thread = QThread()
-        self._worker = ScanWorker(self.db.db_path, root_paths)
+        self._worker = ScanWorker(self.db.db_path, root_paths, recursive=recursive)
         self._worker.moveToThread(self._thread)
         
         self._thread.started.connect(self._worker.run)

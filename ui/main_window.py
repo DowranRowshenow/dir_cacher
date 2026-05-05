@@ -1,3 +1,4 @@
+import datetime
 from PySide6.QtCore import (
     Qt,
     QSize,
@@ -167,7 +168,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1000, 700)
         self.setStyleSheet(STYLESHEET)
         self._generate_checkbox_icons()
-        self.custom_date_range = None # (start_ts, end_ts)
+        self.custom_date_range = None  # (start_ts, end_ts)
 
         self.central_widget = QWidget()
         self.central_widget.setObjectName("MainWindowContent")
@@ -429,8 +430,9 @@ class MainWindow(QMainWindow):
             }
         """
         )
+        self.search_bar.setMaximumWidth(600) # Ensure it doesn't push others off screen
 
-        search_row.addWidget(self.search_bar, 1)
+        search_row.addWidget(self.search_bar, 4)
 
         self.search_shared_cb = QCheckBox("Shared")
         self.search_shared_cb.setStyleSheet(
@@ -443,6 +445,18 @@ class MainWindow(QMainWindow):
             "Expand search to all configured scan folders + shared network cache"
         )
         search_row.addWidget(self.search_shared_cb)
+
+        self.case_sensitive_cb = QCheckBox("Aa")
+        self.case_sensitive_cb.setFixedWidth(46)
+        self.case_sensitive_cb.setToolTip("Match Case")
+        self.case_sensitive_cb.setStyleSheet(
+            """
+            QCheckBox { font-size: 11px; color: #6e6e6e; background: transparent; padding: 0 4px; }
+            QCheckBox::indicator { width: 14px; height: 14px; }
+        """
+        )
+        self.case_sensitive_cb.stateChanged.connect(lambda _: self._on_filter_changed(None))
+        search_row.addWidget(self.case_sensitive_cb)
 
         self.target_scan_btn = QPushButton()
         self.target_scan_btn.setIcon(qta.icon("fa5s.sync", color="white"))
@@ -461,7 +475,6 @@ class MainWindow(QMainWindow):
         """
         )
 
-        search_row.addWidget(self.search_bar, 1)
         search_row.addWidget(self.target_scan_btn)
 
         self.export_btn = QPushButton()
@@ -499,7 +512,15 @@ class MainWindow(QMainWindow):
 
         self.type_menu = QMenu(self)
         self.type_checkboxes = {}
-        types = ["Excel", "PDF", "Word", "Images", "Archives", "Executables", "Drawings"]
+        types = [
+            "Excel",
+            "PDF",
+            "Word",
+            "Drawings",
+            "Images",
+            "Archives",
+            "Executables",
+        ]
         for t in types:
             action = QWidgetAction(self.type_menu)
             cb = QCheckBox(t)
@@ -522,7 +543,14 @@ class MainWindow(QMainWindow):
         self.date_filter = QComboBox()
         self.date_filter.setFixedWidth(120)
         self.date_filter.addItems(
-            ["Any Time", "Today", "Last 7 Days", "Last 30 Days", "This Year", "Custom Range..."]
+            [
+                "Any Time",
+                "Today",
+                "Last 7 Days",
+                "Last 30 Days",
+                "This Year",
+                "Custom Range...",
+            ]
         )
         self.date_filter.currentIndexChanged.connect(self._on_filter_changed)
         self.filter_bar.addWidget(self.date_filter)
@@ -587,48 +615,111 @@ class MainWindow(QMainWindow):
         else:
             self.type_btn.setText(f"{len(checked)} types")
 
-    def _on_filter_changed(self, _):
-        if self.date_filter.currentText() == "Custom Range...":
+    def _on_filter_changed(self, index):
+        txt = self.date_filter.currentText()
+        last_idx = self.date_filter.count() - 1
+        
+        # Only show dialog if exactly "Custom Range..." is selected
+        # (Once a range is set, the text is "DD.MM.YY - DD.MM.YY")
+        if txt == "Custom Range...":
             self._show_custom_date_dialog()
-        self.filter_changed.emit()
+        else:
+            # If we are NOT on the custom range item, ensure it says "Custom Range..."
+            if self.date_filter.currentIndex() != last_idx:
+                if self.date_filter.itemText(last_idx) != "Custom Range...":
+                    self.date_filter.blockSignals(True)
+                    self.date_filter.setItemText(last_idx, "Custom Range...")
+                    self.date_filter.blockSignals(False)
+            
+            # Emit signal to refresh view
+            self.filter_changed.emit()
 
     def _show_custom_date_dialog(self):
         from PySide6.QtWidgets import QDialog, QDateEdit, QDialogButtonBox
         from PySide6.QtCore import QDate
-        
+        import datetime
+
         dlg = QDialog(self)
         dlg.setWindowTitle("Select Date Range")
         dlg.setFixedWidth(300)
-        ly = QVBoxLayout(dlg)
-        
-        start_lbl = QLabel("Start Date:")
-        self.start_edit = QDateEdit(QDate.currentDate().addDays(-30))
+
+        # Apply current theme to dialog
+        is_dark = getattr(self, "is_dark", False)
+        bg = "#252525" if is_dark else "#ffffff"
+        fg = "#ffffff" if is_dark else "#1a1a1a"
+        border = "#3d3d3d" if is_dark else "#cccccc"
+
+        dlg.setStyleSheet(
+            f"""
+            QDialog {{ background-color: {bg}; color: {fg}; }}
+            QLabel {{ color: {fg}; font-size: 13px; }}
+            QDateEdit {{
+                background-color: {bg};
+                color: {fg};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 4px;
+            }}
+            QPushButton {{
+                background-color: {'#3d3d3d' if is_dark else '#f0f0f0'};
+                color: {fg};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 6px 16px;
+                min-width: 80px;
+            }}
+            QPushButton:hover {{
+                background-color: {'#505050' if is_dark else '#e0e0e0'};
+            }}
+            QCalendarWidget QWidget {{ background-color: {bg}; color: {fg}; }}
+            QCalendarWidget QAbstractItemView:enabled {{ color: {fg}; selection-background-color: #0078d4; }}
+        """)
+
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        layout.addWidget(QLabel("Start Date:"))
+        self.start_edit = QDateEdit(QDate.currentDate().addDays(-7))
         self.start_edit.setCalendarPopup(True)
-        
-        end_lbl = QLabel("End Date:")
+        layout.addWidget(self.start_edit)
+
+        layout.addSpacing(10)
+        layout.addWidget(QLabel("End Date:"))
         self.end_edit = QDateEdit(QDate.currentDate())
         self.end_edit.setCalendarPopup(True)
-        
-        ly.addWidget(start_lbl)
-        ly.addWidget(self.start_edit)
-        ly.addSpacing(10)
-        ly.addWidget(end_lbl)
-        ly.addWidget(self.end_edit)
-        ly.addSpacing(20)
-        
+        layout.addWidget(self.end_edit)
+
+        layout.addSpacing(20)
+
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
-        ly.addWidget(btns)
-        
-        if dlg.exec_() == QDialog.Accepted:
-            start_dt = datetime.datetime.combine(self.start_edit.date().toPython(), datetime.time.min)
-            end_dt = datetime.datetime.combine(self.end_edit.date().toPython(), datetime.time.max)
+        layout.addWidget(btns)
+
+        if dlg.exec() == QDialog.Accepted:
+            start_dt = datetime.datetime.combine(
+                self.start_edit.date().toPython(), datetime.time.min
+            )
+            end_dt = datetime.datetime.combine(
+                self.end_edit.date().toPython(), datetime.time.max
+            )
             self.custom_date_range = (start_dt.timestamp(), end_dt.timestamp())
+
+            # Update the last item text to show the range
+            range_str = f"{self.start_edit.date().toString('dd.MM.yy')} - {self.end_edit.date().toString('dd.MM.yy')}"
+            last_idx = self.date_filter.count() - 1
+            self.date_filter.blockSignals(True)
+            self.date_filter.setItemText(last_idx, range_str)
+            self.date_filter.setCurrentIndex(last_idx)
+            self.date_filter.blockSignals(False)
+            self.filter_changed.emit()
         else:
-            # If cancelled and it was Custom Range, maybe revert? 
-            # Or just leave it.
-            pass
+            # If cancelled, revert to "Any Time" (index 0)
+            self.date_filter.blockSignals(True)
+            self.date_filter.setCurrentIndex(0)
+            self.date_filter.blockSignals(False)
+            self.filter_changed.emit()
 
     # ── Page: Scan Now ────────────────────────────────────
     def _build_scan_page(self) -> QWidget:
@@ -1163,6 +1254,9 @@ class MainWindow(QMainWindow):
         )
 
         self.search_shared_cb.setStyleSheet(
+            f"QCheckBox {{ font-size: 11px; color: {subtext}; background: transparent; padding: 0 4px; }} QCheckBox::indicator {{ width: 14px; height: 14px; }}"
+        )
+        self.case_sensitive_cb.setStyleSheet(
             f"QCheckBox {{ font-size: 11px; color: {subtext}; background: transparent; padding: 0 4px; }} QCheckBox::indicator {{ width: 14px; height: 14px; }}"
         )
 

@@ -26,30 +26,6 @@ def resource_path(relative_path):
 
 from PySide6.QtCore import QThread, Signal
 
-class DirSyncWorker(QThread):
-    finished = Signal(str, list)
-    def __init__(self, path: str):
-        super().__init__()
-        self.path = path
-    def run(self):
-        try:
-            entries = []
-            for entry in os.scandir(self.path):
-                try:
-                    s = entry.stat()
-                    entries.append({
-                        "path": entry.path,
-                        "parent": self.path,
-                        "name": entry.name,
-                        "is_dir": entry.is_dir(),
-                        "size": s.st_size if not entry.is_dir() else 0,
-                        "mtime": s.st_mtime
-                    })
-                except OSError:
-                    pass
-            self.finished.emit(self.path, entries)
-        except OSError:
-            pass
 
 class PathLogApp:
     def __init__(self):
@@ -83,7 +59,7 @@ class PathLogApp:
         self.window.table.set_data_source(self._get_children)
         self.window.table.status_updated.connect(self._on_table_status)
         self.window.table.home_requested.connect(lambda: self.refresh_explorer(force_home=True))
-        self.window.table.scan_requested.connect(self.start_targeted_scan)
+        self.window.table.scan_requested.connect(lambda path: self.start_targeted_scan(path, recursive=False))
         self.window.target_scan_btn.clicked.connect(lambda: self.start_targeted_scan(self.window.table._current_path))
 
         self.load_config()
@@ -147,33 +123,12 @@ class PathLogApp:
         if not db:
             return []
         
-        # Start silent background update if local
-        if os.path.exists(path) and db == self.local_db:
-            # Clean up dead workers
-            self._sync_workers = [w for w in self._sync_workers if w.isRunning()]
-            worker = DirSyncWorker(path)
-            worker.finished.connect(self._on_dir_synced)
-            self._sync_workers.append(worker)
-            worker.start()
+        # Silently refresh the folder in the background (no UI blocking, no progress bar)
+        if os.path.exists(path):
+            self._silent_scan(path)
             
         file_types, min_mtime, max_mtime = self._get_filter_params()
         return db.get_children(path, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime)
-
-    def _on_dir_synced(self, path: str, entries: list[dict]):
-        db = self._get_db_for_path(path)
-        if db:
-            db.replace_children(path, entries)
-            # If still looking at this folder, update the UI
-            if self.window.table._current_path == path and not self.window.search_bar.text():
-                # Store selection state if any
-                file_types, min_mtime, max_mtime = self._get_filter_params()
-                items = db.get_children(path, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime)
-                self.window.table._load_items(items)
-                n = len(items)
-                self.window.table.status_updated.emit(
-                    f"{'1 item' if n == 1 else f'{n:,} items'} in this folder.",
-                    f"{n:,} items"
-                )
 
     def _on_table_status(self, status: str, count: str):
         self.window.set_status(status)
@@ -463,7 +418,61 @@ class PathLogApp:
             error_callback=self.on_scan_error,
         )
 
-    def start_targeted_scan(self, path: str):
+    def _silent_scan(self, path: str):
+        """Non-recursive background scan triggered when opening a folder.
+        Completely silent — no progress bar, no UI blocking, no re-navigation on finish.
+        Skipped if a scan for this path is already running."""
+        db = self._get_db_for_path(path)
+        if not path or not db:
+            return
+        if path in self.active_scanners:
+            return  # Already scanning this path, don't queue another
+
+        def _on_finish(count):
+            import time
+            db.update_scan_status(path, time.time())
+            if path in self.active_scanners:
+                del self.active_scanners[path]
+            # Silently update the scan page cards
+            self._update_scan_ui()
+            
+            # If the user is still looking at this folder, update the table view directly
+            # This avoids calling refresh_explorer() and causing an infinite scan loop.
+            if self.window.table._current_path == path:
+                file_types, min_mtime, max_mtime = self._get_filter_params()
+                items = db.get_children(path, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime)
+                # Ensure we apply the current search text filter if any
+                search_text = self.window.search_bar.text().strip()
+                if search_text:
+                    # If we are searching, we shouldn't just show children.
+                    # We should probably call search() again if we want to update search results.
+                    # But _silent_scan is not recursive, so it won't affect global search much.
+                    pass
+                else:
+                    self.window.table._highlight_delegate.set_query("")
+                    self.window.table._load_items(items)
+                    n = len(items)
+                    self.window.table.status_updated.emit(
+                        f"{'1 item' if n == 1 else f'{n:,} items'} in this folder.", f"{n:,} items"
+                    )
+
+        def _on_error(msg):
+            if path in self.active_scanners:
+                del self.active_scanners[path]
+
+        scanner = Scanner(db)
+        self.active_scanners[path] = scanner
+        scanner.start_scan(
+            [path],
+            progress_callback=None,   # Silent — no status updates
+            finished_callback=_on_finish,
+            error_callback=_on_error,
+            recursive=False           # Always shallow for folder-open
+        )
+
+    def start_targeted_scan(self, path: str, recursive: bool = True):
+        """Explicit user-triggered scan (from context menu or scan button).
+        Shows progress bar, updates UI, and refreshes the table when done."""
         db = self._get_db_for_path(path)
         if not path or not db:
             return
@@ -497,6 +506,7 @@ class PathLogApp:
             progress_callback=_on_progress,
             finished_callback=_on_finish,
             error_callback=_on_error,
+            recursive=recursive
         )
 
     def cancel_targeted_scan(self, path: str):
@@ -517,8 +527,14 @@ class PathLogApp:
 
     def on_targeted_scan_finished(self, count: int):
         self.window.progress_bar.setVisible(False)
+        self.window.set_status(f"Scan complete — {count:,} items indexed.")
         self._update_scan_ui()
-        self.refresh_explorer()
+        # Refresh the currently visible folder without re-triggering a silent scan
+        current = self.window.table._current_path
+        if current:
+            self.window.table.navigate_to(current, push_history=False)
+        else:
+            self.refresh_explorer()
 
     def cancel_scan(self):
         for scanner in self.active_scanners.values():
@@ -570,7 +586,9 @@ class PathLogApp:
             min_mtime = (now - timedelta(days=30)).timestamp()
         elif date_text == "This Year":
             min_mtime = datetime(now.year, 1, 1).timestamp()
-        elif date_text == "Custom Range..." and self.window.custom_date_range:
+        # If the last item is selected, it's the custom range
+        last_idx = self.window.date_filter.count() - 1
+        if self.window.date_filter.currentIndex() == last_idx and self.window.custom_date_range:
             min_mtime, max_mtime = self.window.custom_date_range
             
         return file_types, min_mtime, max_mtime
@@ -647,16 +665,17 @@ class PathLogApp:
         if not self.local_db and not self.shared_db:
             return
         
-        file_types, min_mtime = self._get_filter_params()
+        file_types, min_mtime, max_mtime = self._get_filter_params()
         
         # If no text AND no filters, go back to browsing
-        if not text and not file_types and min_mtime == 0:
+        if not text and not file_types and min_mtime == 0 and max_mtime == 0:
             self.refresh_explorer()
             return
             
         # Always search recursively within current dir
         current_path = self.window.table._current_path
         is_global = self.window.search_shared_cb.isChecked()
+        is_case = self.window.case_sensitive_cb.isChecked()
         settings = self.window.settings_panel.get_settings()
         scan_dirs = [d.replace("\\", "/") for d in settings.get("scan_dirs", []) if d]
         results = []
@@ -668,13 +687,13 @@ class PathLogApp:
                     seen_paths.add(r["path"])
                     results.append(r)
 
-        file_types, min_mtime = self._get_filter_params()
+        file_types, min_mtime, max_mtime = self._get_filter_params()
 
         if current_path:
             # Scoped: search recursively inside the current directory
             db = self._get_db_for_path(current_path)
             if db:
-                _add_results(db.search(text, parent_prefix=current_path, file_types=file_types, min_mtime=min_mtime))
+                _add_results(db.search(text, parent_prefix=current_path, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime, case_sensitive=is_case))
 
             # Global: also search every other configured scan dir via correct routing
             if is_global:
@@ -685,17 +704,17 @@ class PathLogApp:
                         continue  # already covered by current_path scope
                     db = self._get_db_for_path(d)
                     if db:
-                        _add_results(db.search(text, parent_prefix=d, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime))
+                        _add_results(db.search(text, parent_prefix=d, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime, case_sensitive=is_case))
         else:
             # Home view: search all configured dirs, each routed to correct DB
             for d in scan_dirs:
                 db = self._get_db_for_path(d)
                 if db:
-                    _add_results(db.search(text, parent_prefix=d, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime))
+                    _add_results(db.search(text, parent_prefix=d, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime, case_sensitive=is_case))
 
             # Global: also search the whole network DB without prefix
             if is_global and self.shared_db:
-                _add_results(self.shared_db.search(text, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime))
+                _add_results(self.shared_db.search(text, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime, case_sensitive=is_case))
 
         self.window.table.set_search_results(results, text)
 
