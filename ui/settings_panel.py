@@ -429,6 +429,8 @@ class SettingsPanel(QWidget):
     def get_settings(self) -> dict:
         lang_name = self.lang_combo.currentText()
         lang_code = self.lang_map.get(lang_name, "en")
+        theme_idx = self.theme_combo.currentIndex()
+        theme_val = ["System Default", "Light", "Dark"][theme_idx] if theme_idx >= 0 else "System Default"
         return {
             "shared_cache_path": self.shared_cache_edit.text().strip(),
             "scan_dirs": [
@@ -436,5 +438,5 @@ class SettingsPanel(QWidget):
                 for i in range(self.dir_list.count())
             ],
             "language": lang_code,
-            "theme": self.theme_combo.currentText()
+            "theme": theme_val
         }

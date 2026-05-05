@@ -189,13 +189,14 @@ class PathLogApp:
             if not db: return
             conn = db.conn
             cursor = conn.cursor()
-            sql = "SELECT path, parent, name, is_dir, size, mtime FROM entries"
+            sql = "SELECT path, parent, name, is_dir, size FROM entries"
             params = []
             
             conditions = []
             if t_dir:
-                conditions.append("(path = ? OR parent LIKE ?)")
-                params.extend([t_dir, f"{t_dir}%"])
+                p = t_dir.replace("\\", "/").rstrip("/")
+                conditions.append("(replace(path, '\\', '/') = ? OR replace(path, '\\', '/') LIKE ?)")
+                params.extend([p, f"{p}/%"])
                 
             if query:
                 terms = [t.strip() for t in query.split("&") if t.strip()]
@@ -207,14 +208,20 @@ class PathLogApp:
                 sql += " WHERE " + " AND ".join(conditions)
                 
             cursor.execute(sql, params)
+            import os
             for row in cursor.fetchall():
+                path = row[0]
+                try:
+                    mtime = os.stat(path).st_mtime
+                except OSError:
+                    mtime = 0
                 results.append({
-                    "Path": row[0],
+                    "Path": path,
                     "Parent": row[1],
                     "Name": row[2],
                     "Is Directory": "Yes" if row[3] else "No",
                     "Size (Bytes)": row[4],
-                    "Modified Time": row[5]
+                    "Modified Time": mtime
                 })
 
         if target_dir:
@@ -287,7 +294,9 @@ class PathLogApp:
             reverse_map = {v: k for k, v in self.window.settings_panel.lang_map.items()}
             self.window.settings_panel.lang_combo.setCurrentText(reverse_map.get(lang_code, "English"))
             
-            self.window.settings_panel.theme_combo.setCurrentText(cfg.get("theme", "System Default"))
+            theme_val = cfg.get("theme", "System Default")
+            theme_idx = ["System Default", "Light", "Dark"].index(theme_val) if theme_val in ["System Default", "Light", "Dark"] else 0
+            self.window.settings_panel.theme_combo.setCurrentIndex(theme_idx)
             self.window.settings_panel.dir_list.clear()
             for d in cfg.get("scan_dirs", []):
                 self.window.settings_panel.dir_list.addItem(d)
