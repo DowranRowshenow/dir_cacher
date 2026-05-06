@@ -571,6 +571,7 @@ class ExplorerTable(QWidget):
             # Col 0 — Name (Natural Sort + Folder Priority)
             name_item = SortableItem(name, is_dir)
             name_item.setData(Qt.UserRole, {"path": path, "is_dir": is_dir})
+            name_item.setToolTip(path)
 
             icon = self._icon_provider.get_icon(path, is_dir)
             name_item.setIcon(icon)

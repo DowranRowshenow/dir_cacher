@@ -723,8 +723,15 @@ class MainWindow(QMainWindow):
 
     # ── Page: Scan Now ────────────────────────────────────
     def _build_scan_page(self) -> QWidget:
+        self.scan_scroll = QScrollArea()
+        self.scan_scroll.setWidgetResizable(True)
+        self.scan_scroll.setFrameShape(QFrame.NoFrame)
+        self.scan_scroll.setStyleSheet("background: transparent; border: none;")
+
         self.scan_page = QWidget()
         self.scan_page.setStyleSheet("background: transparent;")
+        self.scan_scroll.setWidget(self.scan_page)
+        
         layout = QVBoxLayout(self.scan_page)
         layout.setContentsMargins(40, 32, 40, 24)
         layout.setSpacing(0)
@@ -887,7 +894,7 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-        return self.scan_page
+        return self.scan_scroll
 
     def update_scan_dirs(self, dir_infos: list[dict]):
         # Clear existing items

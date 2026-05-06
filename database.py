@@ -16,25 +16,34 @@ class Database:
 
     def create_tables(self):
         with self.conn:
-            # Minimal schema — WITHOUT ROWID saves ~8 bytes/row for TEXT PKs
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS directories (
+                    id INTEGER PRIMARY KEY,
+                    path TEXT UNIQUE NOT NULL
+                )
+                """
+            )
+            # Minimal schema — WITHOUT ROWID saves space, using parent_id eliminates redundant paths
             self.conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS entries (
-                    path   TEXT PRIMARY KEY,
-                    parent TEXT NOT NULL DEFAULT '',
-                    name   TEXT NOT NULL DEFAULT '',
+                    parent_id INTEGER NOT NULL,
+                    name   TEXT NOT NULL,
                     is_dir INTEGER NOT NULL DEFAULT 0,
-                    size   INTEGER NOT NULL DEFAULT 0
+                    size   INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (parent_id, name)
                 ) WITHOUT ROWID
                 """
             )
-            # Composite index: covers get_children (parent filter + dir-first sort)
+        self._migrate()
+        
+        with self.conn:
             self.conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_parent ON entries(parent, is_dir, name)"
+                "CREATE INDEX IF NOT EXISTS idx_entries_parent_dir ON entries(parent_id, is_dir, name)"
             )
-            # Separate name index: covers LIKE/GLOB text search
             self.conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_name ON entries(name)"
+                "CREATE INDEX IF NOT EXISTS idx_entries_name ON entries(name)"
             )
             self.conn.execute(
                 """
@@ -44,79 +53,136 @@ class Database:
                 ) WITHOUT ROWID
                 """
             )
-        self._migrate()
 
     def _migrate(self):
-        """Migrate legacy schema (had mtime/ctime/author) to minimal schema."""
+        """Migrate legacy schema (flat path/parent) to relation schema (directories/entries)."""
         cursor = self.conn.cursor()
         cursor.execute("PRAGMA table_info(entries)")
         cols = {row[1] for row in cursor.fetchall()}
 
-        if "mtime" in cols:
-            # Old schema detected — recreate table without heavy columns
+        if "path" in cols:
+            # Old schema detected — perform data migration
             try:
                 with self.conn:
+                    self.conn.execute("BEGIN TRANSACTION")
+                    
+                    # 1. Ensure new tables exist (done in create_tables)
+                    # 2. Rename old table
+                    self.conn.execute("ALTER TABLE entries RENAME TO old_entries")
+                    
+                    # 3. Create fresh entries table
                     self.conn.execute(
                         """
-                        CREATE TABLE IF NOT EXISTS entries_new (
-                            path   TEXT PRIMARY KEY,
-                            parent TEXT NOT NULL DEFAULT '',
-                            name   TEXT NOT NULL DEFAULT '',
+                        CREATE TABLE entries (
+                            parent_id INTEGER NOT NULL,
+                            name   TEXT NOT NULL,
                             is_dir INTEGER NOT NULL DEFAULT 0,
-                            size   INTEGER NOT NULL DEFAULT 0
+                            size   INTEGER NOT NULL DEFAULT 0,
+                            PRIMARY KEY (parent_id, name)
                         ) WITHOUT ROWID
                         """
                     )
+                    
+                    # 4. Extract unique parent paths
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO directories (path) SELECT DISTINCT parent FROM old_entries WHERE parent != ''"
+                    )
+                    
+                    # 5. Insert mapped data
                     self.conn.execute(
                         """
-                        INSERT OR IGNORE INTO entries_new (path, parent, name, is_dir, size)
-                        SELECT path,
-                               COALESCE(parent, ''),
-                               COALESCE(name, ''),
-                               COALESCE(is_dir, 0),
-                               COALESCE(size, 0)
-                        FROM entries
+                        INSERT OR IGNORE INTO entries (parent_id, name, is_dir, size)
+                        SELECT d.id, o.name, o.is_dir, o.size
+                        FROM old_entries o
+                        JOIN directories d ON d.path = o.parent
                         """
                     )
-                    self.conn.execute("DROP TABLE entries")
-                    self.conn.execute("ALTER TABLE entries_new RENAME TO entries")
-                    self.conn.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_parent ON entries(parent, is_dir, name)"
-                    )
-                    self.conn.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_name ON entries(name)"
-                    )
+                    
+                    # 6. Drop old table
+                    self.conn.execute("DROP TABLE old_entries")
+                    
+                    # 7. Recreate indexes
+                    self.conn.execute("CREATE INDEX IF NOT EXISTS idx_entries_parent_dir ON entries(parent_id, is_dir, name)")
+                    self.conn.execute("CREATE INDEX IF NOT EXISTS idx_entries_name ON entries(name)")
+                    
+                    self.conn.execute("COMMIT")
+                    
                 # Reclaim freed pages immediately
                 self.conn.execute("VACUUM")
-            except Exception:
-                pass  # If migration fails, existing DB still works
+            except Exception as e:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except: pass
+                # If migration fails, we are in a broken state potentially. 
+                pass
 
     # ── Write ─────────────────────────────────────────────
     def upsert_entries(self, entries: List[Dict]):
+        if not entries: return
+        
+        # Collect unique parents
+        parents = list({e["parent"] for e in entries if e["parent"] is not None})
+        
         with self.conn:
+            # 1. Ensure parents exist
+            self.conn.executemany(
+                "INSERT OR IGNORE INTO directories (path) VALUES (?)",
+                [(p,) for p in parents]
+            )
+            
+            # 2. Get parent IDs
+            parent_ids = {}
+            # Chunking to avoid 999 max variable limit
+            for i in range(0, len(parents), 900):
+                chunk = parents[i:i+900]
+                placeholders = ",".join(["?"] * len(chunk))
+                cursor = self.conn.execute(
+                    f"SELECT path, id FROM directories WHERE path IN ({placeholders})", chunk
+                )
+                for path, row_id in cursor.fetchall():
+                    parent_ids[path] = row_id
+            
+            # 3. Map entries and execute
+            items = []
+            for e in entries:
+                pid = parent_ids.get(e["parent"])
+                if pid is not None:
+                    items.append((pid, e["name"], e["is_dir"], e["size"]))
+            
             self.conn.executemany(
                 """
-                INSERT INTO entries (path, parent, name, is_dir, size)
-                VALUES (:path, :parent, :name, :is_dir, :size)
-                ON CONFLICT(path) DO UPDATE SET
-                    parent = excluded.parent,
-                    name   = excluded.name,
+                INSERT INTO entries (parent_id, name, is_dir, size)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(parent_id, name) DO UPDATE SET
                     is_dir = excluded.is_dir,
                     size   = excluded.size
                 """,
-                entries,
+                items,
             )
 
     def replace_children(self, parent_path: str, entries: List[Dict]):
         with self.conn:
-            self.conn.execute("DELETE FROM entries WHERE parent = ?", (parent_path,))
+            # 1. Get or create parent_id
+            cursor = self.conn.execute("SELECT id FROM directories WHERE path = ?", (parent_path,))
+            row = cursor.fetchone()
+            if not row:
+                self.conn.execute("INSERT INTO directories (path) VALUES (?)", (parent_path,))
+                parent_id = self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            else:
+                parent_id = row[0]
+
+            # 2. Delete old
+            self.conn.execute("DELETE FROM entries WHERE parent_id = ?", (parent_id,))
+            
+            # 3. Insert new
             if entries:
+                items = [(parent_id, e["name"], e["is_dir"], e["size"]) for e in entries]
                 self.conn.executemany(
                     """
-                    INSERT INTO entries (path, parent, name, is_dir, size)
-                    VALUES (:path, :parent, :name, :is_dir, :size)
+                    INSERT INTO entries (parent_id, name, is_dir, size)
+                    VALUES (?, ?, ?, ?)
                     """,
-                    entries,
+                    items,
                 )
 
     # ── Read ──────────────────────────────────────────────
@@ -127,8 +193,14 @@ class Database:
         min_mtime: float = 0,
         max_mtime: float = 0,
     ) -> List[Dict]:
-        sql = "SELECT path, parent, name, is_dir, size FROM entries WHERE parent = ?"
-        params = [parent_path]
+        cursor = self.conn.execute("SELECT id FROM directories WHERE path = ?", (parent_path,))
+        row = cursor.fetchone()
+        if not row:
+            return []
+        parent_id = row[0]
+
+        sql = "SELECT name, is_dir, size FROM entries WHERE parent_id = ?"
+        params = [parent_id]
 
         if file_types:
             exts = []
@@ -144,24 +216,30 @@ class Database:
 
         sql += " ORDER BY is_dir DESC, name ASC LIMIT 5000"
         cursor = self.conn.execute(sql, params)
-        cols = [c[0] for c in cursor.description]
-        rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+        rows = cursor.fetchall()
 
-        # Enrich with real-time stat (mtime/ctime/size from disk)
+        # Build path separator safely
+        sep = "\\" if "\\" in parent_path else "/"
+        
         needs_date_filter = min_mtime > 0 or max_mtime > 0
         out = []
-        for row in rows:
-            st = self._stat(row["path"])
-            row["mtime"] = st[0]
-            row["ctime"] = st[1]
-            if st[2]:                    # update size from disk if available
-                row["size"] = st[2]
-            if needs_date_filter and not row["is_dir"]:
-                if min_mtime > 0 and row["mtime"] < min_mtime:
-                    continue
-                if max_mtime > 0 and row["mtime"] > max_mtime:
-                    continue
-            out.append(row)
+        for r_name, r_is_dir, r_size in rows:
+            path = parent_path + sep + r_name if not parent_path.endswith(sep) else parent_path + r_name
+            st = self._stat(path)
+            
+            if needs_date_filter and not r_is_dir:
+                if min_mtime > 0 and st[0] < min_mtime: continue
+                if max_mtime > 0 and st[0] > max_mtime: continue
+
+            out.append({
+                "path": path,
+                "parent": parent_path,
+                "name": r_name,
+                "is_dir": r_is_dir,
+                "size": st[2] if st[2] else r_size,
+                "mtime": st[0],
+                "ctime": st[1]
+            })
         return out
 
     def search(
@@ -178,11 +256,16 @@ class Database:
             return []
 
         op = "GLOB" if case_sensitive else "LIKE"
-        sql = "SELECT path, parent, name, is_dir, size FROM entries WHERE 1=1"
+        sql = """
+        SELECT d.path as parent, e.name, e.is_dir, e.size 
+        FROM entries e
+        JOIN directories d ON e.parent_id = d.id
+        WHERE 1=1
+        """
         params = []
 
         for term in terms:
-            sql += f" AND name {op} ?"
+            sql += f" AND e.name {op} ?"
             params.append(f"*{term}*" if case_sensitive else f"%{term}%")
 
         if file_types:
@@ -191,36 +274,42 @@ class Database:
                 exts.extend(self._get_exts_for_type(ft))
             if exts:
                 sql += (
-                    " AND (is_dir = 1 OR ("
-                    + " OR ".join(["name LIKE ?" for _ in exts])
+                    " AND (e.is_dir = 1 OR ("
+                    + " OR ".join(["e.name LIKE ?" for _ in exts])
                     + "))"
                 )
                 params.extend([f"%.{e}" for e in exts])
 
         if parent_prefix:
             p = parent_prefix.replace("\\", "/").rstrip("/")
-            sql += " AND (replace(path,'\\','/') = ? OR replace(path,'\\','/') LIKE ?)"
+            sql += " AND (replace(d.path,'\\','/') = ? OR replace(d.path,'\\','/') LIKE ?)"
             params.append(p)
             params.append(f"{p}/%")
 
         sql += " LIMIT 2000"
         cursor = self.conn.execute(sql, params)
-        cols = [c[0] for c in cursor.description]
-        rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+        rows = cursor.fetchall()
 
-        # Real-time mtime only if date filter is active
         needs_date_filter = min_mtime > 0 or max_mtime > 0
         out = []
-        for row in rows:
-            st = self._stat(row["path"])
-            row["mtime"] = st[0]
-            row["ctime"] = st[1]
-            if needs_date_filter and not row["is_dir"]:
-                if min_mtime > 0 and row["mtime"] < min_mtime:
-                    continue
-                if max_mtime > 0 and row["mtime"] > max_mtime:
-                    continue
-            out.append(row)
+        for r_parent, r_name, r_is_dir, r_size in rows:
+            sep = "\\" if "\\" in r_parent else "/"
+            path = r_parent + sep + r_name if not r_parent.endswith(sep) else r_parent + r_name
+            
+            st = self._stat(path)
+            if needs_date_filter and not r_is_dir:
+                if min_mtime > 0 and st[0] < min_mtime: continue
+                if max_mtime > 0 and st[0] > max_mtime: continue
+
+            out.append({
+                "path": path,
+                "parent": r_parent,
+                "name": r_name,
+                "is_dir": r_is_dir,
+                "size": st[2] if st[2] else r_size,
+                "mtime": st[0],
+                "ctime": st[1]
+            })
         return out
 
     # ── Helpers ───────────────────────────────────────────
@@ -264,7 +353,12 @@ class Database:
 
     def get_item_count(self, root_path: str) -> int:
         cursor = self.conn.execute(
-            "SELECT COUNT(*) FROM entries WHERE path = ? OR path LIKE ? || '/%' OR path LIKE ? || '\\%'",
+            """
+            SELECT COUNT(*) 
+            FROM entries e
+            JOIN directories d ON e.parent_id = d.id
+            WHERE d.path = ? OR d.path LIKE ? || '/%' OR d.path LIKE ? || '\\%'
+            """,
             (root_path, root_path, root_path),
         )
         return cursor.fetchone()[0]

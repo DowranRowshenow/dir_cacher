@@ -12,8 +12,5 @@
     3. Better Fonts with antialiasing
     4. Add filter types
     5. Search Raw SQL queries
-    6. Better Release Build method
-    7. Portable Build Optimization worse than console mode?
-    8. Scroll for Scan page
-    9. Hover Full path + Searched item Path
-    
+    6. Checkbox list for Scan Paths in Search
+    7. Fix Searching UI Freeze

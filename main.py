@@ -189,19 +189,19 @@ class PathLogApp:
             if not db: return
             conn = db.conn
             cursor = conn.cursor()
-            sql = "SELECT path, parent, name, is_dir, size FROM entries"
+            sql = "SELECT d.path as parent, e.name, e.is_dir, e.size FROM entries e JOIN directories d ON e.parent_id = d.id"
             params = []
             
             conditions = []
             if t_dir:
                 p = t_dir.replace("\\", "/").rstrip("/")
-                conditions.append("(replace(path, '\\', '/') = ? OR replace(path, '\\', '/') LIKE ?)")
+                conditions.append("(replace(d.path, '\\', '/') = ? OR replace(d.path, '\\', '/') LIKE ?)")
                 params.extend([p, f"{p}/%"])
                 
             if query:
                 terms = [t.strip() for t in query.split("&") if t.strip()]
                 for term in terms:
-                    conditions.append("name LIKE ?")
+                    conditions.append("e.name LIKE ?")
                     params.append(f"%{term}%")
                     
             if conditions:
@@ -210,17 +210,21 @@ class PathLogApp:
             cursor.execute(sql, params)
             import os
             for row in cursor.fetchall():
-                path = row[0]
+                parent = row[0]
+                name = row[1]
+                sep = "\\" if "\\" in parent else "/"
+                path = parent + sep + name if not parent.endswith(sep) else parent + name
+                
                 try:
                     mtime = os.stat(path).st_mtime
                 except OSError:
                     mtime = 0
                 results.append({
                     "Path": path,
-                    "Parent": row[1],
-                    "Name": row[2],
-                    "Is Directory": "Yes" if row[3] else "No",
-                    "Size (Bytes)": row[4],
+                    "Parent": parent,
+                    "Name": name,
+                    "Is Directory": "Yes" if row[2] else "No",
+                    "Size (Bytes)": row[3],
                     "Modified Time": mtime
                 })
 
