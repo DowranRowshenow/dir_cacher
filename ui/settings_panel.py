@@ -279,6 +279,7 @@ class SettingsPanel(QWidget):
         # Theme row
         theme_row = QWidget()
         theme_row.setFixedHeight(56)
+        theme_row.setStyleSheet("border-bottom: 1px solid #ebebeb;")
         theme_layout = QHBoxLayout(theme_row)
         theme_layout.setContentsMargins(16, 0, 16, 0)
         
@@ -293,6 +294,25 @@ class SettingsPanel(QWidget):
         theme_layout.addStretch()
         theme_layout.addWidget(self.theme_combo)
         app_layout.addWidget(theme_row)
+
+        # Delimiter row
+        delim_row = QWidget()
+        delim_row.setFixedHeight(56)
+        delim_layout = QHBoxLayout(delim_row)
+        delim_layout.setContentsMargins(16, 0, 16, 0)
+        
+        self._delim_label = QLabel("Search Delimiter")
+        self._delim_label.setStyleSheet("font-size: 13px; color: #1a1a1a; border: none;")
+        self.delim_edit = QLineEdit()
+        self.delim_edit.setPlaceholderText("&")
+        self.delim_edit.setFixedWidth(40)
+        self.delim_edit.setAlignment(Qt.AlignCenter)
+        self.delim_edit.textChanged.connect(lambda: self.settings_changed.emit())
+        
+        delim_layout.addWidget(self._delim_label)
+        delim_layout.addStretch()
+        delim_layout.addWidget(self.delim_edit)
+        app_layout.addWidget(delim_row)
         
         root.addWidget(app_card)
         root.addStretch()
@@ -311,6 +331,7 @@ class SettingsPanel(QWidget):
         self._appearance_label.setText("Appearance") 
         self._language_label.setText(t["language"])
         self._theme_label.setText(t["theme"])
+        if hasattr(self, '_delim_label'): self._delim_label.setText(t.get("search_delimiter", "Search Delimiter"))
         
         # Update theme combo box items without triggering signal
         self.theme_combo.blockSignals(True)
@@ -438,5 +459,6 @@ class SettingsPanel(QWidget):
                 for i in range(self.dir_list.count())
             ],
             "language": lang_code,
-            "theme": theme_val
+            "theme": theme_val,
+            "search_delimiter": self.delim_edit.text().strip() or "&"
         }

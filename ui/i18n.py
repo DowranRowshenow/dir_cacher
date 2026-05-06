@@ -33,7 +33,8 @@ TRANSLATIONS = {
         "export_format": "Export Format:",
         "dest_file": "Destination File:",
         "browse": "Browse...",
-        "export_btn_txt": "Export"
+        "export_btn_txt": "Export",
+        "search_delimiter": "Search Delimiter"
     },
     "tr": {
         "explorer": "Gezgin",
@@ -68,7 +69,8 @@ TRANSLATIONS = {
         "export_format": "Dışa Aktarma Formatı:",
         "dest_file": "Hedef Dosya:",
         "browse": "Gözat...",
-        "export_btn_txt": "Dışa Aktar"
+        "export_btn_txt": "Dışa Aktar",
+        "search_delimiter": "Arama Ayırıcı"
     },
     "ru": {
         "explorer": "Проводник",
@@ -103,7 +105,8 @@ TRANSLATIONS = {
         "export_format": "Формат экспорта:",
         "dest_file": "Файл назначения:",
         "browse": "Обзор...",
-        "export_btn_txt": "Экспорт"
+        "export_btn_txt": "Экспорт",
+        "search_delimiter": "Разделитель поиска"
     },
     "tk": {
         "explorer": "Gözden geçiriji",
@@ -138,6 +141,7 @@ TRANSLATIONS = {
         "export_format": "Eksport formady:",
         "dest_file": "Maksatly faýl:",
         "browse": "Gözden geçir...",
-        "export_btn_txt": "Eksport"
+        "export_btn_txt": "Eksport",
+        "search_delimiter": "Gözleg bölüjisi"
     }
 }

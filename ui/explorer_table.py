@@ -901,7 +901,15 @@ class ExplorerTable(QWidget):
 
     def _on_new_folder(self):
         if not self._current_path: return
-        name, ok = QInputDialog.getText(self, "New Folder", "Folder Name:", text="New Folder")
+        
+        base_name = "New Folder"
+        name = base_name
+        counter = 1
+        while os.path.exists(os.path.join(self._current_path, name)):
+            name = f"{base_name} ({counter})"
+            counter += 1
+            
+        name, ok = QInputDialog.getText(self, "New Folder", "Folder Name:", text=name)
         if ok and name:
             new_path = os.path.join(self._current_path, name)
             try:
@@ -912,7 +920,16 @@ class ExplorerTable(QWidget):
 
     def _on_new_file(self):
         if not self._current_path: return
-        name, ok = QInputDialog.getText(self, "New File", "File Name:", text="New Text Document.txt")
+        
+        base_name = "New Text Document"
+        ext = ".txt"
+        name = f"{base_name}{ext}"
+        counter = 1
+        while os.path.exists(os.path.join(self._current_path, name)):
+            name = f"{base_name} ({counter}){ext}"
+            counter += 1
+            
+        name, ok = QInputDialog.getText(self, "New File", "File Name:", text=name)
         if ok and name:
             new_path = os.path.join(self._current_path, name)
             try:
@@ -998,6 +1015,15 @@ class ExplorerTable(QWidget):
         elif event.key() == Qt.Key_Backtab or event.key() == Qt.Key_Backspace:
             if self._back_btn.isEnabled():
                 self._go_back()
+            event.accept()
+        elif event.key() == Qt.Key_F2:
+            items = self._table.selectedItems()
+            if items:
+                row = items[0].row()
+                name_item = self._table.item(row, 0)
+                data = name_item.data(Qt.UserRole)
+                if data and data.get("path"):
+                    self._on_rename(data["path"])
             event.accept()
         else:
             super().keyPressEvent(event)

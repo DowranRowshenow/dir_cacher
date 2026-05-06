@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 class ExportDialog(QDialog):
-    def __init__(self, scan_dirs, is_dark, t, parent=None):
+    def __init__(self, scan_dirs, current_path, is_dark, t, parent=None):
         super().__init__(parent)
         self.setWindowTitle(t.get("export_wizard", "Export Wizard"))
         self.setMinimumWidth(450)
@@ -72,6 +72,10 @@ class ExportDialog(QDialog):
         layout.addWidget(QLabel(t.get("target_dir", "Target Directory:")))
         self.dir_combo = QComboBox()
         self.dir_combo.addItem(t.get("all_dirs", "All Configured Directories"), "")
+        if current_path:
+            self.dir_combo.addItem(f"Current: {os.path.basename(current_path) or current_path}", current_path)
+            self.dir_combo.setCurrentIndex(1)
+            
         for d in scan_dirs:
             if d:
                 self.dir_combo.addItem(d, d)

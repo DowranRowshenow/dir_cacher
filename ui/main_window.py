@@ -402,7 +402,7 @@ class MainWindow(QMainWindow):
         self.explorer_subtitle.setStyleSheet(
             "color: #6e6e6e; font-size: 13px; background: transparent;"
         )
-        
+
         # Add global spinner to title row
         title_row = QHBoxLayout()
         title_row.addWidget(self.explorer_title)
@@ -439,6 +439,7 @@ class MainWindow(QMainWindow):
             }
         """
         )
+
         self.search_bar.setMaximumWidth(600)  # Ensure it doesn't push others off screen
 
         search_row.addWidget(self.search_bar, 4)
@@ -458,7 +459,17 @@ class MainWindow(QMainWindow):
         self.case_sensitive_cb.setStyleSheet(
             """
             QCheckBox { font-size: 11px; color: #6e6e6e; background: transparent; padding: 0 4px; }
-            QCheckBox::indicator { width: 14px; height: 14px; }
+            QCheckBox::indicator {
+                width: 14px; height: 14px;
+                border: 1px solid #c8c8c8;
+                border-radius: 3px;
+                background: transparent;
+            }
+            QCheckBox::indicator:checked {
+                border: 1px solid #0078d4;
+                image: url(check_blue.png);
+            }
+            QCheckBox::indicator:hover { border-color: #0078d4; }
         """
         )
         self.case_sensitive_cb.stateChanged.connect(
@@ -521,9 +532,16 @@ class MainWindow(QMainWindow):
         self.type_menu = QMenu(self)
         self.type_checkboxes = {}
         types = [
-            "Excel", "PDF", "Word", "Drawings", "Images",
-            "Archives", "Executables", "Videos", "Music",
             "Text Files",
+            "Excel",
+            "Word",
+            "PDF",
+            "Drawings",
+            "Images",
+            "Music",
+            "Videos",
+            "Archives",
+            "Executables",
         ]
         for t in types:
             action = QWidgetAction(self.type_menu)
@@ -617,6 +635,7 @@ class MainWindow(QMainWindow):
         for d in scan_dirs:
             action = QWidgetAction(self.location_menu)
             import os
+
             cb = QCheckBox(os.path.basename(d.rstrip("/\\")) or d)
             cb.setToolTip(d)
             cb.setChecked(True)
@@ -629,7 +648,9 @@ class MainWindow(QMainWindow):
         self._update_location_btn_text()
 
     def _update_location_btn_text(self, _=None):
-        checked = [name for name, cb in self.location_checkboxes.items() if cb.isChecked()]
+        checked = [
+            name for name, cb in self.location_checkboxes.items() if cb.isChecked()
+        ]
         total = len(self.location_checkboxes)
         if total == 0:
             self.location_btn.setText("Locations")
@@ -1046,7 +1067,9 @@ class MainWindow(QMainWindow):
     def set_scanning(self, active: bool):
         if active:
             color = "#0078d4" if getattr(self, "is_dark", False) else "#005a9e"
-            icon = qta.icon("fa5s.spinner", color=color, animation=qta.Spin(self.global_spinner))
+            icon = qta.icon(
+                "fa5s.spinner", color=color, animation=qta.Spin(self.global_spinner)
+            )
             self.global_spinner.setPixmap(icon.pixmap(QSize(20, 20)))
         else:
             self.global_spinner.clear()
@@ -1305,12 +1328,24 @@ class MainWindow(QMainWindow):
             f"color: {subtext}; background: transparent; border: none;"
         )
 
-        self.search_shared_cb.setStyleSheet(
-            f"QCheckBox {{ font-size: 11px; color: {subtext}; background: transparent; padding: 0 4px; }} QCheckBox::indicator {{ width: 14px; height: 14px; }}"
-        )
-        self.case_sensitive_cb.setStyleSheet(
-            f"QCheckBox {{ font-size: 11px; color: {subtext}; background: transparent; padding: 0 4px; }} QCheckBox::indicator {{ width: 14px; height: 14px; }}"
-        )
+        _cb_check_img = "check_white.png" if is_dark else "check_blue.png"
+        _cb_border = "#ffffff" if is_dark else "#c8c8c8"
+        _cb_style = f"""
+            QCheckBox {{ font-size: 11px; color: {subtext}; background: transparent; padding: 0 4px; }}
+            QCheckBox::indicator {{
+                width: 14px; height: 14px;
+                border: 1px solid {_cb_border};
+                border-radius: 3px;
+                background: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                border: 1px solid #0078d4;
+                image: url({_cb_check_img});
+            }}
+            QCheckBox::indicator:hover {{ border-color: #0078d4; }}
+        """
+        self.search_shared_cb.setStyleSheet(_cb_style)
+        self.case_sensitive_cb.setStyleSheet(_cb_style)
 
         # Scan page specific themes
         banner_bg = "#1f2937" if is_dark else "#eff6fc"  # Dark slate blue
@@ -1395,6 +1430,26 @@ class MainWindow(QMainWindow):
         """
         )
 
+        # Update checkbox styles in menus for visibility (Task 6 fix)
+        _menu_cb_style = f"""
+            QCheckBox {{ color: {fg}; padding: 4px 10px; }}
+            QCheckBox::indicator {{
+                width: 14px; height: 14px;
+                border: 1px solid {_cb_border};
+                border-radius: 3px;
+                background: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                border: 1px solid #0078d4;
+                image: url({_cb_check_img});
+            }}
+            QCheckBox::indicator:hover {{ border-color: #0078d4; }}
+        """
+        for cb in self.location_checkboxes.values():
+            cb.setStyleSheet(_menu_cb_style)
+        for cb in self.type_checkboxes.values():
+            cb.setStyleSheet(_menu_cb_style)
+
         combo_style = f"""
             QComboBox {{
                 background: {card};
@@ -1420,24 +1475,34 @@ class MainWindow(QMainWindow):
         """
         self.date_filter.setStyleSheet(combo_style)
 
-        # Checkbox check icon (save to temp file if possible, or use CSS trick)
-        # For simplicity and speed, we'll use a blue border and transparent bg
-        self.search_shared_cb.setStyleSheet(
+        self.location_btn.setStyleSheet(
             f"""
-            QCheckBox {{ color: {fg}; background: transparent; font-size: 13px; }}
-            QCheckBox::indicator {{
-                width: 14px; height: 14px;
-                border: 1px solid {'#ffffff' if is_dark else '#c8c8c8'};
-                border-radius: 3px;
-                background: transparent;
+            QPushButton {{
+                background: {card};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {fg};
+                font-size: 12px;
+                text-align: left;
             }}
-            QCheckBox::indicator:checked {{
-                border: 1px solid #0078d4;
-                image: url(check_blue.png);
-            }}
-            QCheckBox::indicator:hover {{ border-color: #0078d4; }}
+            QPushButton::menu-indicator {{ image: none; }}
+            QPushButton:hover {{ border: 1px solid #0078d4; }}
         """
         )
+
+        self.location_menu.setStyleSheet(
+            f"""
+            QMenu {{
+                background-color: {card};
+                border: 1px solid {border};
+                color: {fg};
+            }}
+            QMenu::item {{ padding: 4px 10px; }}
+            QMenu::item:selected {{ background-color: {'#3d3d3d' if is_dark else '#f0f0f0'}; }}
+        """
+        )
+
 
         # Style for the Type menu button
         self.type_btn.setStyleSheet(
@@ -1486,23 +1551,7 @@ class MainWindow(QMainWindow):
         """
         )
 
-        # Style all checkboxes in the menu
-        for cb in self.type_checkboxes.values():
-            cb.setStyleSheet(
-                f"""
-                QCheckBox {{ color: {fg}; padding: 4px 10px; }}
-                QCheckBox::indicator {{
-                    width: 14px; height: 14px;
-                    border: 1px solid {'#ffffff' if is_dark else '#c8c8c8'};
-                    border-radius: 3px;
-                    background: transparent;
-                }}
-                QCheckBox::indicator:checked {{
-                    border: 1px solid #0078d4;
-                    image: url(check_blue.png);
-                }}
-            """
-            )
+
 
         # Update labels in filter bar
 

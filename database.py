@@ -271,8 +271,9 @@ class Database:
         min_mtime: float = 0,
         max_mtime: float = 0,
         case_sensitive: bool = False,
+        delimiter: str = "&"
     ) -> List[Dict]:
-        terms = [t.strip() for t in query.split("&") if t.strip()]
+        terms = [t.strip() for t in query.split(delimiter) if t.strip()]
         if not terms and not file_types and min_mtime == 0:
             return []
 

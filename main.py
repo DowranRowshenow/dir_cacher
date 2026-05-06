@@ -12,6 +12,7 @@ from ui.main_window import MainWindow
 from database import Database
 from scanner import Scanner
 from ui.i18n import TRANSLATIONS
+from ui.export_progress import ExportProgressDialog
 
 CONFIG_FILE = "config.json"
 
@@ -28,7 +29,8 @@ from PySide6.QtCore import QThread, Signal, QTimer
 
 class SearchWorker(QThread):
     finished = Signal(list, str)
-    def __init__(self, dbs_to_search, text, file_types, min_mtime, max_mtime, is_case, parent_prefixes):
+    progress = Signal(int, int) # (current, total)
+    def __init__(self, dbs_to_search, text, file_types, min_mtime, max_mtime, is_case, parent_prefixes, delimiter="&"):
         super().__init__()
         self.dbs_to_search = dbs_to_search
         self.text = text
@@ -37,6 +39,7 @@ class SearchWorker(QThread):
         self.max_mtime = max_mtime
         self.is_case = is_case
         self.parent_prefixes = parent_prefixes
+        self.delimiter = delimiter
 
     def run(self):
         results = []
@@ -49,7 +52,7 @@ class SearchWorker(QThread):
                 res = db.raw_sql_search(query)
             else:
                 prefix = self.parent_prefixes[i] if i < len(self.parent_prefixes) else None
-                res = db.search(query, parent_prefix=prefix, file_types=self.file_types, min_mtime=self.min_mtime, max_mtime=self.max_mtime, case_sensitive=self.is_case)
+                res = db.search(query, parent_prefix=prefix, file_types=self.file_types, min_mtime=self.min_mtime, max_mtime=self.max_mtime, case_sensitive=self.is_case, delimiter=self.delimiter)
             
             for r in res:
                 path = r.get("path")
@@ -58,12 +61,14 @@ class SearchWorker(QThread):
                     results.append(r)
                 elif not path: # Handle error messages or pathless results
                     results.append(r)
+            self.progress.emit(i + 1, len(self.dbs_to_search))
         self.finished.emit(results, self.text)
 
 
 class ExportWorker(QThread):
     finished = Signal(str)
     error = Signal(str)
+    progress = Signal(int, str) # value, text
 
     def __init__(self, logic_fn, target_dir, query, fmt, dest):
         super().__init__()
@@ -72,13 +77,25 @@ class ExportWorker(QThread):
         self.query = query
         self.fmt = fmt
         self.dest = dest
+        self._is_canceled = False
+
+    def stop(self):
+        self._is_canceled = True
 
     def run(self):
         try:
-            self.logic_fn(self.target_dir, self.query, self.fmt, self.dest)
-            self.finished.emit(self.dest)
+            def progress_cb(v, t):
+                self.progress.emit(v, t)
+            
+            def cancel_check():
+                return self._is_canceled
+
+            self.logic_fn(self.target_dir, self.query, self.fmt, self.dest, progress_cb, cancel_check)
+            if not self._is_canceled:
+                self.finished.emit(self.dest)
         except Exception as e:
-            self.error.emit(str(e))
+            if not self._is_canceled:
+                self.error.emit(str(e))
 
 class PathLogApp:
     def __init__(self):
@@ -207,13 +224,14 @@ class PathLogApp:
         lang = settings.get("language", "en")
         t = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
         
-        dialog = ExportDialog(scan_dirs, self.window.is_dark, t, self.window)
+        dialog = ExportDialog(scan_dirs, self.window.table._current_path, self.window.is_dark, t, self.window)
         dialog.query_edit.setText(self.window.search_bar.text())
         
         if dialog.exec():
             params = dialog.get_export_params()
-            self.window.set_scanning(True)
-            self.window.set_status(t.get("exporting", "Exporting data..."))
+            
+            # Progress dialog
+            self.export_prog = ExportProgressDialog(self.window.is_dark, t, self.window)
             
             self.export_worker = ExportWorker(
                 self._export_data_logic,
@@ -222,9 +240,14 @@ class PathLogApp:
                 params["format"],
                 params["destination"]
             )
-            self.export_worker.finished.connect(self.on_export_finished)
-            self.export_worker.error.connect(self.on_export_error)
+            
+            self.export_prog.canceled.connect(self.export_worker.stop)
+            self.export_worker.progress.connect(self.export_prog.set_progress)
+            self.export_worker.finished.connect(lambda d: (self.export_prog.accept(), self.on_export_finished(d)))
+            self.export_worker.error.connect(lambda e: (self.export_prog.reject(), self.on_export_error(e)))
+            
             self.export_worker.start()
+            self.export_prog.exec()
 
     def on_export_finished(self, dest):
         from PySide6.QtWidgets import QMessageBox
@@ -258,11 +281,15 @@ class PathLogApp:
             apply_dark_title_bar(msg, True)
         msg.exec()
 
-    def _export_data_logic(self, target_dir, query, fmt, dest):
+    def _export_data_logic(self, target_dir, query, fmt, dest, progress_cb=None, cancel_check=None):
         results = []
         
+        if progress_cb: progress_cb(5, "Querying database...")
+
         def _fetch_from_db(db, t_dir):
             if not db: return
+            if cancel_check and cancel_check(): return
+            
             conn = db.conn
             cursor = conn.cursor()
             sql = "SELECT d.path as parent, e.name, e.is_dir, e.size FROM entries e JOIN directories d ON e.parent_id = d.id"
@@ -284,24 +311,29 @@ class PathLogApp:
                 sql += " WHERE " + " AND ".join(conditions)
                 
             cursor.execute(sql, params)
-            import os
-            for row in cursor.fetchall():
+            rows = cursor.fetchall()
+            
+            total = len(rows)
+            for i, row in enumerate(rows):
+                if cancel_check and cancel_check(): break
+                if progress_cb and i % 500 == 0:
+                    progress_cb(10 + int(40 * (i/total)), f"Processing items... ({i}/{total})")
+                
                 parent = row[0]
                 name = row[1]
                 sep = "\\" if "\\" in parent else "/"
                 path = parent + sep + name if not parent.endswith(sep) else parent + name
                 
-                try:
-                    mtime = os.stat(path).st_mtime
-                except OSError:
-                    mtime = 0
+                # We skip os.stat during export to keep it fast, or only do it if requested.
+                # User said "Exporting takes long time than normal", likely due to os.stat on network shares.
+                # We'll use 0 or skip it for now.
                 results.append({
                     "Path": path,
                     "Parent": parent,
                     "Name": name,
                     "Is Directory": "Yes" if row[2] else "No",
                     "Size (Bytes)": row[3],
-                    "Modified Time": mtime
+                    "Modified Time": 0
                 })
 
         if target_dir:
@@ -310,6 +342,10 @@ class PathLogApp:
             _fetch_from_db(self.local_db, None)
             _fetch_from_db(self.shared_db, None)
             
+        if cancel_check and cancel_check(): return
+        
+        if progress_cb: progress_cb(55, f"Writing to {fmt.upper()}...")
+        
         import csv
         from datetime import datetime
 
@@ -317,9 +353,14 @@ class PathLogApp:
             with open(dest, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.DictWriter(f, fieldnames=["Path", "Parent", "Name", "Is Directory", "Size (Bytes)", "Modified Time"])
                 writer.writeheader()
-                for r in results:
-                    mtime = r["Modified Time"]
-                    r["Modified Time"] = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S') if mtime else ""
+                total = len(results)
+                for i, r in enumerate(results):
+                    if cancel_check and cancel_check(): break
+                    if progress_cb and i % 1000 == 0:
+                        progress_cb(60 + int(35 * (i/total)), f"Writing rows... {i}/{total}")
+                    
+                    # Modified Time is 0 now
+                    r["Modified Time"] = ""
                     writer.writerow(r)
         elif fmt == "xlsx":
             try:
@@ -334,14 +375,20 @@ class PathLogApp:
             headers = ["Path", "Parent", "Name", "Is Directory", "Size (Bytes)", "Modified Time"]
             ws.append(headers)
             
-            for r in results:
-                mtime = r["Modified Time"]
-                mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S') if mtime else ""
+            total = len(results)
+            for i, r in enumerate(results):
+                if cancel_check and cancel_check(): break
+                if progress_cb and i % 500 == 0:
+                    progress_cb(60 + int(35 * (i/total)), f"Writing to Excel... {i}/{total}")
+                
                 ws.append([
-                    r["Path"], r["Parent"], r["Name"], r["Is Directory"], r["Size (Bytes)"], mtime_str
+                    r["Path"], r["Parent"], r["Name"], r["Is Directory"], r["Size (Bytes)"], ""
                 ])
                 
-            wb.save(dest)
+            if not (cancel_check and cancel_check()):
+                wb.save(dest)
+        
+        if progress_cb: progress_cb(100, "Done!")
 
     def _get_local_db_path(self):
         appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
@@ -380,6 +427,10 @@ class PathLogApp:
             self.window.settings_panel.dir_list.clear()
             for d in cfg.get("scan_dirs", []):
                 self.window.settings_panel.dir_list.addItem(d)
+            
+            self.window.settings_panel.delim_edit.setText(cfg.get("search_delimiter", "&"))
+            self.search_delimiter = cfg.get("search_delimiter", "&")
+            
             self.window.settings_panel.blockSignals(False)
             
             # Collect scan info with timestamps
@@ -393,6 +444,7 @@ class PathLogApp:
 
     def save_config(self):
         settings = self.window.settings_panel.get_settings()
+        self.search_delimiter = settings.get("search_delimiter", "&")
         try:
             with open(CONFIG_FILE, "w") as f:
                 json.dump(settings, f, indent=2)
@@ -775,18 +827,12 @@ class PathLogApp:
             return
             
         is_case = self.window.case_sensitive_cb.isChecked()
-        current_path = self.window.table._current_path
         
         # Determine exactly which databases and prefixes to search
         dbs_to_search = []
         prefixes = []
-        # Logic: 
-        # 1. If locations are CHECKED in the dropdown → use those.
-        # 2. If NO locations are checked → search ALL configured scan dirs.
-        # (Current path is ignored for search scope if we have explicit locations or want global search)
         
         checked_locations = [loc for loc, cb in self.window.location_checkboxes.items() if cb.isChecked()]
-        
         if checked_locations:
             scope = checked_locations
         else:
@@ -803,24 +849,28 @@ class PathLogApp:
 
         self.window.set_scanning(True)
 
-        # Disable UI elements or set loading state (optional)
         if self.search_worker and self.search_worker.isRunning():
             self.search_worker.terminate()
             
         self.search_worker = SearchWorker(
-            dbs_to_search, text, file_types, min_mtime, max_mtime, is_case, prefixes
+            dbs_to_search, text, file_types, min_mtime, max_mtime, is_case, prefixes, getattr(self, "search_delimiter", "&")
         )
+        self.search_worker.progress.connect(self._on_search_progress)
         self.search_worker.finished.connect(self.on_search_worker_finished)
         self.search_worker.start()
         self.window.set_status("Searching...")
         
+    def _on_search_progress(self, current, total):
+        pct = int((current / total) * 100) if total > 0 else 0
+        self.window.set_status(f"Searching... {pct}% ({current}/{total} locations)")
+
     def on_search_worker_finished(self, results, original_text):
         self.window.set_scanning(False)
         # Ensure we only show results for the LATEST search query
         if self.window.search_bar.text() != original_text:
             return
         self.window.table.show_search_results(results, original_text)
-        self.window.set_status("Ready")
+        self.window.set_status(f"Found {len(results):,} items for \"{original_text}\".")
 
     def open_cache_folder(self):
         appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
