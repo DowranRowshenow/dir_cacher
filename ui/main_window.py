@@ -1172,6 +1172,7 @@ class MainWindow(QMainWindow):
         self.scan_card_title.setText(t["full_recursive_scan"])
         self.scan_btn.setText(t["start_full_scan"])
         self.cancel_btn.setText(t["cancel"])
+        self.table.update_translations(t)
 
         # Settings Page
         self.settings_panel.update_translations(t)
@@ -1190,6 +1191,8 @@ class MainWindow(QMainWindow):
         border = "#333333" if is_dark else "#ebebeb"
         subtext = "#aaaaaa" if is_dark else "#666666"
         card = "#2d2d2d" if is_dark else "#fafafa"
+        header = "#252525" if is_dark else "#f3f3f3"
+        btn_bg = "#333333" if is_dark else "#f0f0f0"
 
         tooltip_bg = "#2d2d2d" if is_dark else "#ffffff"
         tooltip_fg = "#ffffff" if is_dark else "#1a1a1a"
@@ -1216,6 +1219,44 @@ class MainWindow(QMainWindow):
                 padding: 6px 10px;
                 margin: 2px;
                 font-weight: 500;
+            }}
+            QDialog, QMessageBox, QInputDialog {{
+                background-color: {bg};
+                color: {fg};
+            }}
+            QDialog QLabel, QMessageBox QLabel, QInputDialog QLabel {{
+                background-color: {header};
+                color: {fg};
+                padding: 6px;
+                border-bottom: 1px solid {border};
+                font-weight: 600;
+            }}
+            QDialog QPushButton, QMessageBox QPushButton, QInputDialog QPushButton, QDialogButtonBox QPushButton {{
+                background: {btn_bg};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 4px 16px;
+                color: {fg};
+            }}
+            QDialogButtonBox QPushButton {{
+                padding: 4px 12px;
+                border: 1px solid {border};
+                border-radius: 4px;
+                background: {'#333333' if is_dark else '#f0f0f0'};
+                color: {fg};
+            }}
+            QDialogButtonBox QPushButton:hover {{
+                background: {'#444444' if is_dark else '#e0e0e0'};
+            }}
+            QDialog QPushButton:hover, QMessageBox QPushButton:hover, QInputDialog QPushButton:hover {{
+                background: {'#444444' if is_dark else '#e0e0e0'};
+            }}
+            QDialog QLineEdit, QInputDialog QLineEdit {{
+                background: {'#2d2d2d' if is_dark else '#ffffff'};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 4px;
+                color: {fg};
             }}
             QMenu {{
                 background-color: {card};

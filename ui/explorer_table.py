@@ -377,8 +377,24 @@ class ExplorerTable(QWidget):
         self._root_label: str = ""
         self._root_path: str = ""
         self._get_children_fn = None
+        self._t = {}
+        self._is_dark = False
+
+    def update_translations(self, t: dict):
+        self._t = t
+        # Update column headers
+        self.column_names = [
+            t.get("name", "Name"),
+            t.get("type", "Type"),
+            t.get("size", "Size"),
+            t.get("modified", "Date Modified"),
+            t.get("created", "Date Created"),
+            t.get("author", "Author"),
+        ]
+        self._table.setHorizontalHeaderLabels(self.column_names)
 
     def set_theme(self, is_dark: bool):
+        self._is_dark = is_dark
         bg = "#1e1e1e" if is_dark else "#ffffff"
         fg = "#ffffff" if is_dark else "#1a1a1a"
         border = "#333333" if is_dark else "#ebebeb"
@@ -679,19 +695,19 @@ class ExplorerTable(QWidget):
             menu = QMenu(self)
             menu.setStyleSheet("QMenu::item { padding: 6px 10px 6px 16px; }")
             
-            new_menu = menu.addMenu(qta.icon("fa5s.plus", color="#107c10"), "New")
-            new_folder_act = new_menu.addAction(qta.icon("fa5s.folder", color="#f0a30a"), "Folder")
-            new_file_act = new_menu.addAction(qta.icon("fa5s.file-alt", color="#0078d4"), "Text Document")
+            new_menu = menu.addMenu(qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New"))
+            new_folder_act = new_menu.addAction(qta.icon("fa5s.folder", color="#f0a30a"), self._t.get("folder", "Folder"))
+            new_file_act = new_menu.addAction(qta.icon("fa5s.file-alt", color="#0078d4"), self._t.get("text_document", "Text Document"))
             
             menu.addSeparator()
-            paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), "Paste")
+            paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste"))
             # Disable paste if clipboard doesn't have files
             clipboard = QApplication.clipboard()
             if not clipboard.mimeData().hasUrls():
                 paste_act.setEnabled(False)
                 
             menu.addSeparator()
-            refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), "Refresh Folder")
+            refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), self._t.get("refresh", "Refresh Folder"))
             
             action = menu.exec(event.globalPos())
             if not self._current_path:
@@ -766,35 +782,35 @@ class ExplorerTable(QWidget):
         icon_gray = "#aaaaaa" if is_dark else "#888888"
 
         open_act = menu.addAction(
-            qta.icon("fa5s.external-link-alt", color=primary_fg), "Open"
+            qta.icon("fa5s.external-link-alt", color=primary_fg), self._t.get("open", "Open")
         )
         reveal_act = menu.addAction(
-            qta.icon("fa5s.folder-open", color="#f0a30a"), "Show in File Explorer"
+            qta.icon("fa5s.folder-open", color="#f0a30a"), self._t.get("show_in_explorer", "Show in File Explorer")
         )
         menu.addSeparator()
         
-        new_menu = menu.addMenu(qta.icon("fa5s.plus", color="#107c10"), "New")
-        new_folder_act = new_menu.addAction(qta.icon("fa5s.folder", color="#f0a30a"), "Folder")
-        new_file_act = new_menu.addAction(qta.icon("fa5s.file-alt", color="#0078d4"), "Text Document")
+        new_menu = menu.addMenu(qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New"))
+        new_folder_act = new_menu.addAction(qta.icon("fa5s.folder", color="#f0a30a"), self._t.get("folder", "Folder"))
+        new_file_act = new_menu.addAction(qta.icon("fa5s.file-alt", color="#0078d4"), self._t.get("text_document", "Text Document"))
         
         menu.addSeparator()
-        copy_act = menu.addAction(qta.icon("fa5s.copy", color=icon_gray), "Copy Path")
-        prop_act = menu.addAction(qta.icon("fa5s.info-circle", color=icon_gray), "Properties")
+        copy_act = menu.addAction(qta.icon("fa5s.copy", color=icon_gray), self._t.get("copy_path", "Copy Path"))
+        prop_act = menu.addAction(qta.icon("fa5s.info-circle", color=icon_gray), self._t.get("properties", "Properties"))
         menu.addSeparator()
-        rename_act = menu.addAction(qta.icon("fa5s.edit", color=icon_gray), "Rename")
-        delete_act = menu.addAction(qta.icon("fa5s.trash-alt", color="#d1242f"), "Delete")
+        rename_act = menu.addAction(qta.icon("fa5s.edit", color=icon_gray), self._t.get("rename", "Rename"))
+        delete_act = menu.addAction(qta.icon("fa5s.trash-alt", color="#d1242f"), self._t.get("delete", "Delete"))
         menu.addSeparator()
         
         # Clipboard actions
-        c_copy_act = menu.addAction(qta.icon("fa5s.clone", color=icon_gray), "Copy")
-        c_cut_act = menu.addAction(qta.icon("fa5s.cut", color=icon_gray), "Cut")
-        paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), "Paste")
+        c_copy_act = menu.addAction(qta.icon("fa5s.clone", color=icon_gray), self._t.get("copy", "Copy"))
+        c_cut_act = menu.addAction(qta.icon("fa5s.cut", color=icon_gray), self._t.get("cut", "Cut"))
+        paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste"))
         # Disable paste if clipboard doesn't have files
         if not QApplication.clipboard().mimeData().hasUrls():
             paste_act.setEnabled(False)
         
         menu.addSeparator()
-        refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), "Refresh (Rescan)")
+        refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), self._t.get("refresh", "Refresh (Rescan)"))
 
         action = menu.exec(self._table.viewport().mapToGlobal(pos))
         path = self._normalize_path(path)
@@ -899,6 +915,226 @@ class ExplorerTable(QWidget):
             p = "\\\\" + p.lstrip("\\")
         return os.path.normpath(p)
 
+    # ── Themed Dialog Helpers ───────────────────────────────
+    def _dialog_stylesheet(self) -> str:
+        """Return a stylesheet string for custom themed dialogs."""
+        is_dark = self._is_dark
+        bg        = "#1e1e1e" if is_dark else "#ffffff"
+        fg        = "#ffffff" if is_dark else "#1a1a1a"
+        header_bg = "#252525" if is_dark else "#f3f3f3"
+        border    = "#444444" if is_dark else "#d1d1d1"
+        btn_bg    = "#3a3a3a" if is_dark else "#f0f0f0"
+        btn_hover = "#4a4a4a" if is_dark else "#e0e0e0"
+        input_bg  = "#2d2d2d" if is_dark else "#ffffff"
+        return f"""
+            QDialog {{
+                background-color: {bg};
+                color: {fg};
+            }}
+            QLabel#dlg_header {{
+                background-color: {header_bg};
+                color: {fg};
+                font-size: 13px;
+                font-weight: 600;
+                padding: 10px 14px;
+                border-bottom: 1px solid {border};
+            }}
+            QLabel {{
+                color: {fg};
+                background-color: transparent;
+                padding: 4px 14px 2px 14px;
+            }}
+            QLineEdit {{
+                background-color: {input_bg};
+                color: {fg};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 5px 8px;
+                font-size: 13px;
+            }}
+            QLineEdit:focus {{
+                border-color: #0078d4;
+            }}
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {fg};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 5px 18px;
+                font-size: 12px;
+                min-width: 70px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+                border-color: #0078d4;
+            }}
+            QPushButton:pressed {{
+                background-color: {'#555555' if is_dark else '#d0d0d0'};
+            }}
+            QPushButton#dlg_ok {{
+                background-color: #0078d4;
+                color: #ffffff;
+                border: 1px solid #0067b8;
+            }}
+            QPushButton#dlg_ok:hover {{
+                background-color: #106ebe;
+                border-color: #005ea2;
+            }}
+        """
+
+    def _show_input_dialog(self, title: str, label: str, default_text: str = "") -> tuple[str, bool]:
+        """Show a fully themed input dialog. Returns (text, ok)."""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton
+        from PySide6.QtCore import Qt
+        from ui.styles import apply_dark_title_bar
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(340)
+        dlg.setStyleSheet(self._dialog_stylesheet())
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        apply_dark_title_bar(dlg, self._is_dark)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header_lbl = QLabel(title)
+        header_lbl.setObjectName("dlg_header")
+        layout.addWidget(header_lbl)
+
+        inner = QVBoxLayout()
+        inner.setContentsMargins(14, 10, 14, 10)
+        inner.setSpacing(6)
+
+        prompt_lbl = QLabel(label)
+        inner.addWidget(prompt_lbl)
+
+        edit = QLineEdit(default_text)
+        edit.selectAll()
+        inner.addWidget(edit)
+        layout.addLayout(inner)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(14, 4, 14, 14)
+        btn_row.setSpacing(8)
+        btn_row.addStretch()
+
+        ok_btn = QPushButton(self._t.get("done", "OK"))
+        ok_btn.setObjectName("dlg_ok")
+        cancel_btn = QPushButton(self._t.get("cancel", "Cancel"))
+
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+        result = [""]
+        ok_clicked = [False]
+
+        def _ok():
+            result[0] = edit.text()
+            ok_clicked[0] = True
+            dlg.accept()
+
+        def _cancel():
+            dlg.reject()
+
+        ok_btn.clicked.connect(_ok)
+        cancel_btn.clicked.connect(_cancel)
+        edit.returnPressed.connect(_ok)
+
+        dlg.exec()
+        return result[0], ok_clicked[0]
+
+    def _show_confirm_dialog(self, title: str, message: str) -> bool:
+        """Show a fully themed yes/no confirmation dialog. Returns True if Yes."""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+        from PySide6.QtCore import Qt
+        from ui.styles import apply_dark_title_bar
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(340)
+        dlg.setStyleSheet(self._dialog_stylesheet())
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        apply_dark_title_bar(dlg, self._is_dark)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header_lbl = QLabel(title)
+        header_lbl.setObjectName("dlg_header")
+        layout.addWidget(header_lbl)
+
+        inner = QVBoxLayout()
+        inner.setContentsMargins(14, 12, 14, 8)
+        msg_lbl = QLabel(message)
+        msg_lbl.setWordWrap(True)
+        inner.addWidget(msg_lbl)
+        layout.addLayout(inner)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(14, 4, 14, 14)
+        btn_row.setSpacing(8)
+        btn_row.addStretch()
+
+        yes_btn = QPushButton("Yes")
+        yes_btn.setObjectName("dlg_ok")
+        no_btn = QPushButton("No")
+
+        btn_row.addWidget(no_btn)
+        btn_row.addWidget(yes_btn)
+        layout.addLayout(btn_row)
+
+        confirmed = [False]
+
+        yes_btn.clicked.connect(lambda: [confirmed.__setitem__(0, True), dlg.accept()])
+        no_btn.clicked.connect(dlg.reject)
+
+        dlg.exec()
+        return confirmed[0]
+
+    def _show_error_dialog(self, title: str, message: str):
+        """Show a fully themed error dialog."""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+        from PySide6.QtCore import Qt
+        from ui.styles import apply_dark_title_bar
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(340)
+        dlg.setStyleSheet(self._dialog_stylesheet())
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        apply_dark_title_bar(dlg, self._is_dark)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header_lbl = QLabel(title)
+        header_lbl.setObjectName("dlg_header")
+        layout.addWidget(header_lbl)
+
+        inner = QVBoxLayout()
+        inner.setContentsMargins(14, 12, 14, 8)
+        msg_lbl = QLabel(message)
+        msg_lbl.setWordWrap(True)
+        inner.addWidget(msg_lbl)
+        layout.addLayout(inner)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(14, 4, 14, 14)
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("dlg_ok")
+        btn_row.addStretch()
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+        ok_btn.clicked.connect(dlg.accept)
+        dlg.exec()
+
     def _on_new_folder(self):
         if not self._current_path: return
         
@@ -909,7 +1145,12 @@ class ExplorerTable(QWidget):
             name = f"{base_name} ({counter})"
             counter += 1
             
-        name, ok = QInputDialog.getText(self, "New Folder", "Folder Name:", text=name)
+        name, ok = QInputDialog.getText(
+            self,
+            self._t.get("new_folder_title", "New Folder"),
+            self._t.get("folder_name_prompt", "Folder Name:"),
+            text=name,
+        )
         if ok and name:
             new_path = os.path.join(self._current_path, name)
             try:
@@ -929,7 +1170,12 @@ class ExplorerTable(QWidget):
             name = f"{base_name} ({counter}){ext}"
             counter += 1
             
-        name, ok = QInputDialog.getText(self, "New File", "File Name:", text=name)
+        name, ok = QInputDialog.getText(
+            self,
+            self._t.get("new_file_title", "New File"),
+            self._t.get("file_name_prompt", "File Name:"),
+            text=name,
+        )
         if ok and name:
             new_path = os.path.join(self._current_path, name)
             try:
@@ -940,7 +1186,12 @@ class ExplorerTable(QWidget):
 
     def _on_rename(self, old_path: str):
         old_name = os.path.basename(old_path)
-        name, ok = QInputDialog.getText(self, "Rename", "New Name:", text=old_name)
+        name, ok = QInputDialog.getText(
+            self,
+            self._t.get("rename_title", "Rename"),
+            self._t.get("new_name_prompt", "New Name:"),
+            text=old_name,
+        )
         if ok and name and name != old_name:
             new_path = os.path.join(os.path.dirname(old_path), name)
             try:
