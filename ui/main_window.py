@@ -402,6 +402,15 @@ class MainWindow(QMainWindow):
         self.explorer_subtitle.setStyleSheet(
             "color: #6e6e6e; font-size: 13px; background: transparent;"
         )
+        
+        # Add global spinner to title row
+        title_row = QHBoxLayout()
+        title_row.addWidget(self.explorer_title)
+        title_row.addStretch()
+        self.global_spinner = QLabel()
+        self.global_spinner.setFixedSize(24, 24)
+        title_row.addWidget(self.global_spinner)
+        layout.addLayout(title_row)
         layout.addWidget(self.explorer_subtitle)
 
         layout.addSpacing(20)
@@ -430,21 +439,18 @@ class MainWindow(QMainWindow):
             }
         """
         )
-        self.search_bar.setMaximumWidth(600) # Ensure it doesn't push others off screen
+        self.search_bar.setMaximumWidth(600)  # Ensure it doesn't push others off screen
 
         search_row.addWidget(self.search_bar, 4)
 
         self.search_shared_cb = QCheckBox("Shared")
-        self.search_shared_cb.setStyleSheet(
-            """
-            QCheckBox { font-size: 11px; color: #6e6e6e; background: transparent; padding: 0 4px; }
-            QCheckBox::indicator { width: 14px; height: 14px; }
-        """
-        )
-        self.search_shared_cb.setToolTip(
-            "Expand search to all configured scan folders + shared network cache"
-        )
-        search_row.addWidget(self.search_shared_cb)
+        self.location_btn = QPushButton("All Locations")
+        self.location_btn.setFixedWidth(130)
+        self.location_btn.setCursor(Qt.PointingHandCursor)
+        self.location_menu = QMenu(self)
+        self.location_btn.setMenu(self.location_menu)
+        self.location_checkboxes = {}
+        search_row.addWidget(self.location_btn)
 
         self.case_sensitive_cb = QCheckBox("Aa")
         self.case_sensitive_cb.setFixedWidth(46)
@@ -455,7 +461,9 @@ class MainWindow(QMainWindow):
             QCheckBox::indicator { width: 14px; height: 14px; }
         """
         )
-        self.case_sensitive_cb.stateChanged.connect(lambda _: self._on_filter_changed(None))
+        self.case_sensitive_cb.stateChanged.connect(
+            lambda _: self._on_filter_changed(None)
+        )
         search_row.addWidget(self.case_sensitive_cb)
 
         self.target_scan_btn = QPushButton()
@@ -513,13 +521,9 @@ class MainWindow(QMainWindow):
         self.type_menu = QMenu(self)
         self.type_checkboxes = {}
         types = [
-            "Excel",
-            "PDF",
-            "Word",
-            "Drawings",
-            "Images",
-            "Archives",
-            "Executables",
+            "Excel", "PDF", "Word", "Drawings", "Images",
+            "Archives", "Executables", "Videos", "Music",
+            "Text Files",
         ]
         for t in types:
             action = QWidgetAction(self.type_menu)
@@ -604,7 +608,39 @@ class MainWindow(QMainWindow):
         for cb in self.type_checkboxes.values():
             cb.setChecked(False)
         self.date_filter.setCurrentIndex(0)
+        # We don't clear location checkboxes, they should default to checked
         self._on_filter_changed(None)
+
+    def update_search_locations(self, scan_dirs: list[str]):
+        self.location_menu.clear()
+        self.location_checkboxes.clear()
+        for d in scan_dirs:
+            action = QWidgetAction(self.location_menu)
+            import os
+            cb = QCheckBox(os.path.basename(d.rstrip("/\\")) or d)
+            cb.setToolTip(d)
+            cb.setChecked(True)
+            cb.setStyleSheet("padding: 4px 10px; color: inherit;")
+            cb.stateChanged.connect(lambda _: self._on_filter_changed(None))
+            cb.stateChanged.connect(self._update_location_btn_text)
+            action.setDefaultWidget(cb)
+            self.location_menu.addAction(action)
+            self.location_checkboxes[d] = cb
+        self._update_location_btn_text()
+
+    def _update_location_btn_text(self, _=None):
+        checked = [name for name, cb in self.location_checkboxes.items() if cb.isChecked()]
+        total = len(self.location_checkboxes)
+        if total == 0:
+            self.location_btn.setText("Locations")
+        elif len(checked) == total:
+            self.location_btn.setText("All Locations")
+        elif len(checked) == 0:
+            self.location_btn.setText("No Locations")
+        elif len(checked) == 1:
+            self.location_btn.setText("1 Location")
+        else:
+            self.location_btn.setText(f"{len(checked)} Locations")
 
     def _update_type_btn_text(self, _):
         checked = [name for name, cb in self.type_checkboxes.items() if cb.isChecked()]
@@ -618,7 +654,7 @@ class MainWindow(QMainWindow):
     def _on_filter_changed(self, index):
         txt = self.date_filter.currentText()
         last_idx = self.date_filter.count() - 1
-        
+
         # Only show dialog if exactly "Custom Range..." is selected
         # (Once a range is set, the text is "DD.MM.YY - DD.MM.YY")
         if txt == "Custom Range...":
@@ -630,7 +666,7 @@ class MainWindow(QMainWindow):
                     self.date_filter.blockSignals(True)
                     self.date_filter.setItemText(last_idx, "Custom Range...")
                     self.date_filter.blockSignals(False)
-            
+
             # Emit signal to refresh view
             self.filter_changed.emit()
 
@@ -673,7 +709,8 @@ class MainWindow(QMainWindow):
             }}
             QCalendarWidget QWidget {{ background-color: {bg}; color: {fg}; }}
             QCalendarWidget QAbstractItemView:enabled {{ color: {fg}; selection-background-color: #0078d4; }}
-        """)
+        """
+        )
 
         layout = QVBoxLayout(dlg)
         layout.setSpacing(12)
@@ -731,7 +768,7 @@ class MainWindow(QMainWindow):
         self.scan_page = QWidget()
         self.scan_page.setStyleSheet("background: transparent;")
         self.scan_scroll.setWidget(self.scan_page)
-        
+
         layout = QVBoxLayout(self.scan_page)
         layout.setContentsMargins(40, 32, 40, 24)
         layout.setSpacing(0)
@@ -1005,6 +1042,14 @@ class MainWindow(QMainWindow):
         else:
             pause_btn.setText("Resume")
             self.dir_pause_requested.emit(path, True)
+
+    def set_scanning(self, active: bool):
+        if active:
+            color = "#0078d4" if getattr(self, "is_dark", False) else "#005a9e"
+            icon = qta.icon("fa5s.spinner", color=color, animation=qta.Spin(self.global_spinner))
+            self.global_spinner.setPixmap(icon.pixmap(QSize(20, 20)))
+        else:
+            self.global_spinner.clear()
 
     def set_dir_scan_state(self, path: str, is_scanning: bool, message: str):
         if path not in self.dir_ui_map:

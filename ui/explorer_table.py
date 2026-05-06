@@ -20,6 +20,9 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
     QStyle,
     QStyleOptionViewItem,
+    QInputDialog,
+    QMessageBox,
+    QWidgetAction,
 )
 from PySide6.QtCore import Qt, QSize, Signal, QEvent
 from PySide6.QtGui import (
@@ -267,6 +270,10 @@ class ExplorerTable(QWidget):
     status_updated = Signal(str, str)
     home_requested = Signal()
     scan_requested = Signal(str)
+    
+    _get_children_fn = None
+    _rename_entry_fn = None
+    _delete_entry_fn = None
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -301,8 +308,15 @@ class ExplorerTable(QWidget):
         self._breadcrumb.navigate_to.connect(self._on_breadcrumb_nav)
         self._breadcrumb.home_clicked.connect(self.home_requested.emit)
 
+        self._spinner = QLabel()
+        self._spinner.setFixedSize(20, 20)
+        self._spinner.setVisible(False)
+        self._spinner.setToolTip("Scanning current directory...")
+        # We'll use qta to set the icon later when theme is set or in set_scanning
+        
         toolbar.addWidget(self._back_btn)
         toolbar.addWidget(self._breadcrumb, 1)
+        toolbar.addWidget(self._spinner)
         layout.addLayout(toolbar)
 
         # Table
@@ -332,6 +346,7 @@ class ExplorerTable(QWidget):
         hh.setSectionsMovable(True)
 
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setShowGrid(False)
         self._table.setFocusPolicy(Qt.StrongFocus)
@@ -377,6 +392,10 @@ class ExplorerTable(QWidget):
             self._breadcrumb.set_theme(is_dark)
 
         self._back_btn.setIcon(qta.icon("fa5s.arrow-left", color=fg))
+        
+        # Update spinner icon with theme-aware color
+        self._spinner_icon = qta.icon("fa5s.spinner", color="#0078d4", animation=qta.Spin(self._spinner))
+        self._spinner.setPixmap(self._spinner_icon.pixmap(QSize(16, 16)))
 
         self._table.setStyleSheet(
             f"""
@@ -458,13 +477,18 @@ class ExplorerTable(QWidget):
         """
         )
 
+    def set_scanning(self, is_scanning: bool):
+        self._spinner.setVisible(is_scanning)
+
     # ── Public API ─────────────────────────────────────────
     def clear_history(self):
         self._history = []
         self._back_btn.setEnabled(False)
 
-    def set_data_source(self, get_children_fn):
+    def set_data_source(self, get_children_fn, rename_entry_fn=None, delete_entry_fn=None):
         self._get_children_fn = get_children_fn
+        self._rename_entry_fn = rename_entry_fn
+        self._delete_entry_fn = delete_entry_fn
 
     def navigate_to(
         self,
@@ -624,6 +648,22 @@ class ExplorerTable(QWidget):
         tbl.blockSignals(False)
         tbl.setUpdatesEnabled(True)
 
+    def show_search_results(self, results, query):
+        self._current_path = None
+        self._breadcrumb.set_path("", root_label=f"Search: {query}")
+        self._load_items(results)
+        self._back_btn.setEnabled(len(self._history) > 0)
+
+    def show_virtual_roots(self, roots, label="Locations"):
+        self._current_path = None
+        self._breadcrumb.set_path("", root_label=label)
+        self._load_items(roots)
+        self._back_btn.setEnabled(len(self._history) > 0)
+
+    def clear_history(self):
+        self._history.clear()
+        self._back_btn.setEnabled(False)
+
     # ── Context menu ───────────────────────────────────────
     def contextMenuEvent(self, event):
         pos = event.pos()
@@ -639,11 +679,32 @@ class ExplorerTable(QWidget):
             menu = QMenu(self)
             menu.setStyleSheet("QMenu::item { padding: 6px 10px 6px 16px; }")
             
+            new_menu = menu.addMenu(qta.icon("fa5s.plus", color="#107c10"), "New")
+            new_folder_act = new_menu.addAction(qta.icon("fa5s.folder", color="#f0a30a"), "Folder")
+            new_file_act = new_menu.addAction(qta.icon("fa5s.file-alt", color="#0078d4"), "Text Document")
+            
+            menu.addSeparator()
+            paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), "Paste")
+            # Disable paste if clipboard doesn't have files
+            clipboard = QApplication.clipboard()
+            if not clipboard.mimeData().hasUrls():
+                paste_act.setEnabled(False)
+                
+            menu.addSeparator()
             refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), "Refresh Folder")
             
             action = menu.exec(event.globalPos())
-            if action == refresh_act and self._current_path:
+            if not self._current_path:
+                return
+                
+            if action == refresh_act:
                 self.scan_requested.emit(self._current_path)
+            elif action == new_folder_act:
+                self._on_new_folder()
+            elif action == new_file_act:
+                self._on_new_file()
+            elif action == paste_act:
+                self._on_paste()
 
     def _header_context_menu(self, pos):
         menu = QMenu(self)
@@ -711,13 +772,29 @@ class ExplorerTable(QWidget):
             qta.icon("fa5s.folder-open", color="#f0a30a"), "Show in File Explorer"
         )
         menu.addSeparator()
+        
+        new_menu = menu.addMenu(qta.icon("fa5s.plus", color="#107c10"), "New")
+        new_folder_act = new_menu.addAction(qta.icon("fa5s.folder", color="#f0a30a"), "Folder")
+        new_file_act = new_menu.addAction(qta.icon("fa5s.file-alt", color="#0078d4"), "Text Document")
+        
+        menu.addSeparator()
         copy_act = menu.addAction(qta.icon("fa5s.copy", color=icon_gray), "Copy Path")
-        prop_act = menu.addAction(
-            qta.icon("fa5s.info-circle", color=icon_gray), "Properties"
-        )
+        prop_act = menu.addAction(qta.icon("fa5s.info-circle", color=icon_gray), "Properties")
+        menu.addSeparator()
+        rename_act = menu.addAction(qta.icon("fa5s.edit", color=icon_gray), "Rename")
+        delete_act = menu.addAction(qta.icon("fa5s.trash-alt", color="#d1242f"), "Delete")
+        menu.addSeparator()
+        
+        # Clipboard actions
+        c_copy_act = menu.addAction(qta.icon("fa5s.clone", color=icon_gray), "Copy")
+        c_cut_act = menu.addAction(qta.icon("fa5s.cut", color=icon_gray), "Cut")
+        paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), "Paste")
+        # Disable paste if clipboard doesn't have files
+        if not QApplication.clipboard().mimeData().hasUrls():
+            paste_act.setEnabled(False)
+        
         menu.addSeparator()
         refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), "Refresh (Rescan)")
-
 
         action = menu.exec(self._table.viewport().mapToGlobal(pos))
         path = self._normalize_path(path)
@@ -726,6 +803,20 @@ class ExplorerTable(QWidget):
 
         if action == copy_act:
             QApplication.clipboard().setText(path)
+        elif action == rename_act:
+            self._on_rename(path)
+        elif action == delete_act:
+            self._on_delete(path)
+        elif action == c_copy_act:
+            self._on_clipboard_copy([path], cut=False)
+        elif action == c_cut_act:
+            self._on_clipboard_copy([path], cut=True)
+        elif action == paste_act:
+            self._on_paste()
+        elif action == new_folder_act:
+            self._on_new_folder()
+        elif action == new_file_act:
+            self._on_new_file()
         elif action == prop_act:
             self._show_native_properties(path)
         elif action == refresh_act:
@@ -807,6 +898,85 @@ class ExplorerTable(QWidget):
         if path.startswith("//") or path.startswith("\\\\"):
             p = "\\\\" + p.lstrip("\\")
         return os.path.normpath(p)
+
+    def _on_new_folder(self):
+        if not self._current_path: return
+        name, ok = QInputDialog.getText(self, "New Folder", "Folder Name:", text="New Folder")
+        if ok and name:
+            new_path = os.path.join(self._current_path, name)
+            try:
+                os.makedirs(new_path, exist_ok=False)
+                self.scan_requested.emit(self._current_path)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not create folder: {str(e)}")
+
+    def _on_new_file(self):
+        if not self._current_path: return
+        name, ok = QInputDialog.getText(self, "New File", "File Name:", text="New Text Document.txt")
+        if ok and name:
+            new_path = os.path.join(self._current_path, name)
+            try:
+                with open(new_path, 'w') as f: pass
+                self.scan_requested.emit(self._current_path)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not create file: {str(e)}")
+
+    def _on_rename(self, old_path: str):
+        old_name = os.path.basename(old_path)
+        name, ok = QInputDialog.getText(self, "Rename", "New Name:", text=old_name)
+        if ok and name and name != old_name:
+            new_path = os.path.join(os.path.dirname(old_path), name)
+            try:
+                os.rename(old_path, new_path)
+                if self._rename_entry_fn:
+                    self._rename_entry_fn(old_path, new_path)
+                self.scan_requested.emit(os.path.dirname(old_path))
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not rename: {str(e)}")
+
+    def _on_delete(self, path: str):
+        reply = QMessageBox.question(self, "Confirm Delete", 
+                                   f"Are you sure you want to delete '{os.path.basename(path)}'?",
+                                   QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            try:
+                import shutil
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+                if self._delete_entry_fn:
+                    self._delete_entry_fn(path)
+                self.scan_requested.emit(os.path.dirname(path))
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not delete: {str(e)}")
+
+    def _on_clipboard_copy(self, paths: list[str], cut: bool = False):
+        from PySide6.QtCore import QUrl, QMimeData
+        mime = QMimeData()
+        urls = [QUrl.fromLocalFile(p) for p in paths]
+        mime.setUrls(urls)
+        # We can store 'cut' state in mime data too if we want native explorer behavior, 
+        # but for now we just handle standard copy.
+        QApplication.clipboard().setMimeData(mime)
+
+    def _on_paste(self):
+        if not self._current_path: return
+        mime = QApplication.clipboard().mimeData()
+        if mime.hasUrls():
+            import shutil
+            for url in mime.urls():
+                src = url.toLocalFile()
+                if os.path.exists(src):
+                    dst = os.path.join(self._current_path, os.path.basename(src))
+                    try:
+                        if os.path.isdir(src):
+                            shutil.copytree(src, dst)
+                        else:
+                            shutil.copy2(src, dst)
+                    except Exception as e:
+                        QMessageBox.warning(self, "Paste Error", f"Failed to paste {src}: {str(e)}")
+            self.scan_requested.emit(self._current_path)
 
     @staticmethod
     def _fmt_size(size: int) -> str:

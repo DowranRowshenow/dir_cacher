@@ -24,13 +24,70 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, QTimer
 
+class SearchWorker(QThread):
+    finished = Signal(list, str)
+    def __init__(self, dbs_to_search, text, file_types, min_mtime, max_mtime, is_case, parent_prefixes):
+        super().__init__()
+        self.dbs_to_search = dbs_to_search
+        self.text = text
+        self.file_types = file_types
+        self.min_mtime = min_mtime
+        self.max_mtime = max_mtime
+        self.is_case = is_case
+        self.parent_prefixes = parent_prefixes
+
+    def run(self):
+        results = []
+        seen_paths = set()
+        is_sql = self.text.lower().startswith("sql:")
+        query = self.text[4:].strip() if is_sql else self.text
+
+        for i, db in enumerate(self.dbs_to_search):
+            if is_sql:
+                res = db.raw_sql_search(query)
+            else:
+                prefix = self.parent_prefixes[i] if i < len(self.parent_prefixes) else None
+                res = db.search(query, parent_prefix=prefix, file_types=self.file_types, min_mtime=self.min_mtime, max_mtime=self.max_mtime, case_sensitive=self.is_case)
+            
+            for r in res:
+                path = r.get("path")
+                if path and path not in seen_paths:
+                    seen_paths.add(path)
+                    results.append(r)
+                elif not path: # Handle error messages or pathless results
+                    results.append(r)
+        self.finished.emit(results, self.text)
+
+
+class ExportWorker(QThread):
+    finished = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, logic_fn, target_dir, query, fmt, dest):
+        super().__init__()
+        self.logic_fn = logic_fn
+        self.target_dir = target_dir
+        self.query = query
+        self.fmt = fmt
+        self.dest = dest
+
+    def run(self):
+        try:
+            self.logic_fn(self.target_dir, self.query, self.fmt, self.dest)
+            self.finished.emit(self.dest)
+        except Exception as e:
+            self.error.emit(str(e))
 
 class PathLogApp:
     def __init__(self):
         from PySide6.QtGui import QIcon, QShortcut, QKeySequence
         from PySide6.QtCore import Qt
+        
+        # High DPI support for sharp fonts
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
         
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("DirCache")
@@ -55,8 +112,12 @@ class PathLogApp:
         self.scanner: Scanner | None = None
         self._sync_workers = []
 
-        # Inject data source into explorer table
-        self.window.table.set_data_source(self._get_children)
+        # Connect DB sync helpers
+        self.window.table.set_data_source(
+            self._get_children,
+            rename_entry_fn=self._on_db_rename,
+            delete_entry_fn=self._on_db_delete
+        )
         self.window.table.status_updated.connect(self._on_table_status)
         self.window.table.home_requested.connect(lambda: self.refresh_explorer(force_home=True))
         self.window.table.scan_requested.connect(lambda path: self.start_targeted_scan(path, recursive=False))
@@ -85,8 +146,8 @@ class PathLogApp:
         self.window.settings_panel.settings_changed.connect(self.save_config)
         self.window.settings_panel.open_cache_folder_requested.connect(self.open_cache_folder)
         self.window.settings_panel.clear_cache_requested.connect(self.clear_cache)
-        self.window.search_shared_cb.stateChanged.connect(lambda: self.search(self.window.search_bar.text()))
         self.window.export_btn.clicked.connect(self.open_export_wizard)
+        self.search_worker = None
 
         self.refresh_explorer()
 
@@ -139,7 +200,6 @@ class PathLogApp:
 
     def open_export_wizard(self):
         from ui.export_dialog import ExportDialog
-        from PySide6.QtWidgets import QMessageBox
         from ui.i18n import TRANSLATIONS
         
         settings = self.window.settings_panel.get_settings()
@@ -148,41 +208,57 @@ class PathLogApp:
         t = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
         
         dialog = ExportDialog(scan_dirs, self.window.is_dark, t, self.window)
-        # Pre-fill query with current search bar content
         dialog.query_edit.setText(self.window.search_bar.text())
         
         if dialog.exec():
             params = dialog.get_export_params()
-            target_dir = params["directory"]
-            query = params["query"]
-            fmt = params["format"]
-            dest = params["destination"]
+            self.window.set_scanning(True)
+            self.window.set_status(t.get("exporting", "Exporting data..."))
             
-            try:
-                self._export_data(target_dir, query, fmt, dest)
-                msg = QMessageBox(self.window)
-                msg.setIcon(QMessageBox.Information)
-                msg.setWindowTitle("Export Success")
-                msg.setText(f"Successfully exported data to:\n{dest}")
-                if self.window.is_dark:
-                    from ui.styles import apply_dark_title_bar
-                    msg.setStyleSheet("QMessageBox { background-color: #1e1e1e; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #333333; color: #ffffff; border: 1px solid #555555; padding: 4px 16px; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
-                    msg.show() # Must be shown to have a window handle
-                    apply_dark_title_bar(msg, True)
-                msg.exec()
-            except Exception as e:
-                msg = QMessageBox(self.window)
-                msg.setIcon(QMessageBox.Critical)
-                msg.setWindowTitle("Export Error")
-                msg.setText(f"Failed to export data:\n{e}")
-                if self.window.is_dark:
-                    from ui.styles import apply_dark_title_bar
-                    msg.setStyleSheet("QMessageBox { background-color: #1e1e1e; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #333333; color: #ffffff; border: 1px solid #555555; padding: 4px 16px; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
-                    msg.show()
-                    apply_dark_title_bar(msg, True)
-                msg.exec()
+            self.export_worker = ExportWorker(
+                self._export_data_logic,
+                params["directory"],
+                params["query"],
+                params["format"],
+                params["destination"]
+            )
+            self.export_worker.finished.connect(self.on_export_finished)
+            self.export_worker.error.connect(self.on_export_error)
+            self.export_worker.start()
 
-    def _export_data(self, target_dir, query, fmt, dest):
+    def on_export_finished(self, dest):
+        from PySide6.QtWidgets import QMessageBox
+        self.window.set_scanning(False)
+        self.window.set_status("Ready")
+        
+        msg = QMessageBox(self.window)
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle("Export Success")
+        msg.setText(f"Successfully exported data to:\n{dest}")
+        if self.window.is_dark:
+            from ui.styles import apply_dark_title_bar
+            msg.setStyleSheet("QMessageBox { background-color: #1e1e1e; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #333333; color: #ffffff; border: 1px solid #555555; padding: 4px 16px; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
+            msg.show()
+            apply_dark_title_bar(msg, True)
+        msg.exec()
+
+    def on_export_error(self, err):
+        from PySide6.QtWidgets import QMessageBox
+        self.window.set_scanning(False)
+        self.window.set_status("Export Failed")
+        
+        msg = QMessageBox(self.window)
+        msg.setIcon(QMessageBox.Critical)
+        msg.setWindowTitle("Export Error")
+        msg.setText(f"Failed to export data:\n{err}")
+        if self.window.is_dark:
+            from ui.styles import apply_dark_title_bar
+            msg.setStyleSheet("QMessageBox { background-color: #1e1e1e; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #333333; color: #ffffff; border: 1px solid #555555; padding: 4px 16px; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
+            msg.show()
+            apply_dark_title_bar(msg, True)
+        msg.exec()
+
+    def _export_data_logic(self, target_dir, query, fmt, dest):
         results = []
         
         def _fetch_from_db(db, t_dir):
@@ -330,8 +406,9 @@ class PathLogApp:
 
     def _update_scan_ui(self):
         settings = self.window.settings_panel.get_settings()
+        scan_dirs = settings.get("scan_dirs", [])
         dir_infos = []
-        for d in settings.get("scan_dirs", []):
+        for d in scan_dirs:
             db = self._get_db_for_path(d)
             last_scan = db.get_scan_status(d) if db else None
             item_count = db.get_item_count(d) if db else 0
@@ -342,6 +419,11 @@ class PathLogApp:
             })
             
         self.window.update_scan_dirs(dir_infos)
+        
+        # Only update checkboxes if they have changed to avoid resetting user selection
+        existing = list(self.window.location_checkboxes.keys())
+        if set(existing) != set(scan_dirs):
+            self.window.update_search_locations(scan_dirs)
 
     def apply_theme_and_lang(self):
         settings = self.window.settings_panel.get_settings()
@@ -383,11 +465,8 @@ class PathLogApp:
     def start_full_scan(self):
         settings = self.window.settings_panel.get_settings()
         dirs = [d for d in settings["scan_dirs"] if d]
-        if not dirs:
-            self.window.set_status("Add at least one directory to scan in Settings.")
-            return
-
         self.window.set_progress(True, "Preparing full scan…")
+        self.window.set_scanning(True)
         # For full scan, we should actually split into two scanner runs or one that knows
         # how to pick DB per path. Since current Scanner is simple, we'll just scan all
         # into the appropriate DBs sequentially or together if we upgrade it.
@@ -423,6 +502,7 @@ class PathLogApp:
 
         scanner = Scanner(db)
         self.active_scanners[path] = scanner
+        self.window.set_scanning(True)
         self.window.set_dir_scan_state(path, True, "Starting...")
         scanner.start_scan(
             [path],
@@ -436,10 +516,13 @@ class PathLogApp:
         Completely silent — no progress bar, no UI blocking, no re-navigation on finish.
         Skipped if a scan for this path is already running."""
         db = self._get_db_for_path(path)
-        if not path or not db:
-            return
+        if not db: return
+
         if path in self.active_scanners:
+            self.window.set_scanning(True)
             return  # Already scanning this path, don't queue another
+
+        self.window.set_scanning(True)
 
         def _on_finish(count):
             import time
@@ -452,26 +535,26 @@ class PathLogApp:
             # If the user is still looking at this folder, update the table view directly
             # This avoids calling refresh_explorer() and causing an infinite scan loop.
             if self.window.table._current_path == path:
+                self.window.set_scanning(False)
                 file_types, min_mtime, max_mtime = self._get_filter_params()
                 items = db.get_children(path, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime)
                 # Ensure we apply the current search text filter if any
                 search_text = self.window.search_bar.text().strip()
-                if search_text:
-                    # If we are searching, we shouldn't just show children.
-                    # We should probably call search() again if we want to update search results.
-                    # But _silent_scan is not recursive, so it won't affect global search much.
-                    pass
-                else:
+                if not search_text:
                     self.window.table._highlight_delegate.set_query("")
                     self.window.table._load_items(items)
                     n = len(items)
                     self.window.table.status_updated.emit(
                         f"{'1 item' if n == 1 else f'{n:,} items'} in this folder.", f"{n:,} items"
                     )
+            elif not self.active_scanners:
+                self.window.set_scanning(False)
 
         def _on_error(msg):
             if path in self.active_scanners:
                 del self.active_scanners[path]
+            if self.window.table._current_path == path:
+                self.window.set_scanning(False)
 
         scanner = Scanner(db)
         self.active_scanners[path] = scanner
@@ -493,6 +576,7 @@ class PathLogApp:
         if path in self.active_scanners:
             return
             
+        self.window.set_scanning(True)
         self.window.progress_bar.setVisible(True)
         self.window.set_dir_scan_state(path, True, "Starting...")
         
@@ -504,11 +588,13 @@ class PathLogApp:
             db.update_scan_status(path, time.time())
             if path in self.active_scanners:
                 del self.active_scanners[path]
+            self.window.set_scanning(False)
             self.on_targeted_scan_finished(count)
 
         def _on_error(msg):
             if path in self.active_scanners:
                 del self.active_scanners[path]
+            self.window.set_scanning(False)
             self._update_scan_ui()
             self.on_scan_error(msg)
 
@@ -553,15 +639,18 @@ class PathLogApp:
         for scanner in self.active_scanners.values():
             scanner.stop_scan()
         self.active_scanners.clear()
+        self.window.set_scanning(False)
         self.window.set_progress(False, "Scan cancelled.")
         self._update_scan_ui()
 
-    def on_scan_finished(self, count: int):
-        self.window.set_progress(False, f"Done — {count:,} items indexed.")
+    def on_scan_finished(self, total_count):
+        self.window.set_scanning(False)
+        self.window.set_progress(False, f"Scan complete. Found {total_count:,} items.")
         self._update_scan_ui()
         self.refresh_explorer()
 
     def on_scan_error(self, message: str):
+        self.window.set_scanning(False)
         self.window.set_progress(False, "Scan failed.")
         for scanner in self.active_scanners.values():
             scanner.stop_scan()
@@ -685,51 +774,53 @@ class PathLogApp:
             self.refresh_explorer()
             return
             
-        # Always search recursively within current dir
-        current_path = self.window.table._current_path
-        is_global = self.window.search_shared_cb.isChecked()
         is_case = self.window.case_sensitive_cb.isChecked()
-        settings = self.window.settings_panel.get_settings()
-        scan_dirs = [d.replace("\\", "/") for d in settings.get("scan_dirs", []) if d]
-        results = []
-        seen_paths = set()
-
-        def _add_results(new_results):
-            for r in new_results:
-                if r["path"] not in seen_paths:
-                    seen_paths.add(r["path"])
-                    results.append(r)
-
-        file_types, min_mtime, max_mtime = self._get_filter_params()
-
-        if current_path:
-            # Scoped: search recursively inside the current directory
-            db = self._get_db_for_path(current_path)
-            if db:
-                _add_results(db.search(text, parent_prefix=current_path, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime, case_sensitive=is_case))
-
-            # Global: also search every other configured scan dir via correct routing
-            if is_global:
-                norm_current = current_path.replace("\\", "/")
-                for d in scan_dirs:
-                    d_norm = d.rstrip("/")
-                    if d_norm == norm_current.rstrip("/") or norm_current.startswith(d_norm + "/"):
-                        continue  # already covered by current_path scope
-                    db = self._get_db_for_path(d)
-                    if db:
-                        _add_results(db.search(text, parent_prefix=d, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime, case_sensitive=is_case))
+        current_path = self.window.table._current_path
+        
+        # Determine exactly which databases and prefixes to search
+        dbs_to_search = []
+        prefixes = []
+        # Logic: 
+        # 1. If locations are CHECKED in the dropdown → use those.
+        # 2. If NO locations are checked → search ALL configured scan dirs.
+        # (Current path is ignored for search scope if we have explicit locations or want global search)
+        
+        checked_locations = [loc for loc, cb in self.window.location_checkboxes.items() if cb.isChecked()]
+        
+        if checked_locations:
+            scope = checked_locations
         else:
-            # Home view: search all configured dirs, each routed to correct DB
-            for d in scan_dirs:
-                db = self._get_db_for_path(d)
-                if db:
-                    _add_results(db.search(text, parent_prefix=d, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime, case_sensitive=is_case))
+            scope = [d for d in self.window.settings_panel.get_settings().get("scan_dirs", []) if d]
 
-            # Global: also search the whole network DB without prefix
-            if is_global and self.shared_db:
-                _add_results(self.shared_db.search(text, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime, case_sensitive=is_case))
+        for loc in scope:
+            db = self._get_db_for_path(loc)
+            if db:
+                dbs_to_search.append(db)
+                prefixes.append(loc)
 
-        self.window.table.set_search_results(results, text)
+        if not dbs_to_search:
+            return
+
+        self.window.set_scanning(True)
+
+        # Disable UI elements or set loading state (optional)
+        if self.search_worker and self.search_worker.isRunning():
+            self.search_worker.terminate()
+            
+        self.search_worker = SearchWorker(
+            dbs_to_search, text, file_types, min_mtime, max_mtime, is_case, prefixes
+        )
+        self.search_worker.finished.connect(self.on_search_worker_finished)
+        self.search_worker.start()
+        self.window.set_status("Searching...")
+        
+    def on_search_worker_finished(self, results, original_text):
+        self.window.set_scanning(False)
+        # Ensure we only show results for the LATEST search query
+        if self.window.search_bar.text() != original_text:
+            return
+        self.window.table.show_search_results(results, original_text)
+        self.window.set_status("Ready")
 
     def open_cache_folder(self):
         appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
@@ -787,6 +878,16 @@ class PathLogApp:
         self.window.show()
         sys.exit(self.app.exec())
 
+
+    def _on_db_rename(self, old_path, new_path):
+        db = self._get_db_for_path(old_path)
+        if db:
+            db.rename_entry(old_path, new_path)
+
+    def _on_db_delete(self, path):
+        db = self._get_db_for_path(path)
+        if db:
+            db.delete_entry(path)
 
 if __name__ == "__main__":
     app = PathLogApp()

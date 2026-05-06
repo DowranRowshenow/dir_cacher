@@ -98,8 +98,8 @@ class ScanWorker(QObject):
                     path = path_p.decode('utf-8')
                     parent = parent_p.decode('utf-8')
                     name = name_p.decode('utf-8')
-                    # mtime/ctime/author dropped — fetched from disk at display time
-                    batch.append((path, parent, name, is_dir, size))
+                    # mtime stored, ctime same as mtime for DLL fallback, author dropped
+                    batch.append((path, parent, name, is_dir, size, mtime, mtime))
                     total[0] += 1
                     if len(batch) >= 500:
                         self._flush(conn, batch)
@@ -130,8 +130,9 @@ class ScanWorker(QObject):
                                         stat = entry.stat(follow_symlinks=False)
                                         batch.append((
                                             entry.path, curr, entry.name,
-                                            int(is_dir), stat.st_size
-                                        ))  # mtime/ctime not stored in DB
+                                            int(is_dir), stat.st_size,
+                                            stat.st_mtime, stat.st_ctime
+                                        ))
                                         total[0] += 1
                                         if is_dir and self.recursive:
                                             stack.append(entry.path)

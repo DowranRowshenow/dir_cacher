@@ -340,14 +340,7 @@ QScrollBar::sub-line:horizontal {
 }
 
 /* ─── Tooltip ───────────────────────────────── */
-QToolTip {
-    background-color: #ffffff;
-    border: 1px solid #c8c8c8;
-    border-radius: 4px;
-    color: #1a1a1a;
-    padding: 6px 10px;
-    font-size: 12px;
-}
+/* Tooltips handled dynamically by set_theme in main_window.py */
 """
 
 def apply_dark_title_bar(window, is_dark: bool):
