@@ -699,13 +699,11 @@ class ExplorerTable(QWidget):
             new_folder_act = new_menu.addAction(qta.icon("fa5s.folder", color="#f0a30a"), self._t.get("folder", "Folder"))
             new_file_act = new_menu.addAction(qta.icon("fa5s.file-alt", color="#0078d4"), self._t.get("text_document", "Text Document"))
             
-            menu.addSeparator()
-            paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste"))
-            # Disable paste if clipboard doesn't have files
             clipboard = QApplication.clipboard()
-            if not clipboard.mimeData().hasUrls():
-                paste_act.setEnabled(False)
-                
+            paste_act = None
+            if clipboard.mimeData().hasUrls():
+                menu.addSeparator()
+                paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste"))
             menu.addSeparator()
             refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), self._t.get("refresh", "Refresh Folder"))
             
@@ -804,10 +802,9 @@ class ExplorerTable(QWidget):
         # Clipboard actions
         c_copy_act = menu.addAction(qta.icon("fa5s.clone", color=icon_gray), self._t.get("copy", "Copy"))
         c_cut_act = menu.addAction(qta.icon("fa5s.cut", color=icon_gray), self._t.get("cut", "Cut"))
-        paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste"))
-        # Disable paste if clipboard doesn't have files
-        if not QApplication.clipboard().mimeData().hasUrls():
-            paste_act.setEnabled(False)
+        paste_act = None
+        if QApplication.clipboard().mimeData().hasUrls():
+            paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste"))
         
         menu.addSeparator()
         refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), self._t.get("refresh", "Refresh (Rescan)"))
@@ -1145,11 +1142,10 @@ class ExplorerTable(QWidget):
             name = f"{base_name} ({counter})"
             counter += 1
             
-        name, ok = QInputDialog.getText(
-            self,
+        name, ok = self._show_input_dialog(
             self._t.get("new_folder_title", "New Folder"),
             self._t.get("folder_name_prompt", "Folder Name:"),
-            text=name,
+            default_text=name,
         )
         if ok and name:
             new_path = os.path.join(self._current_path, name)
@@ -1157,7 +1153,7 @@ class ExplorerTable(QWidget):
                 os.makedirs(new_path, exist_ok=False)
                 self.scan_requested.emit(self._current_path)
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Could not create folder: {str(e)}")
+                self._show_error_dialog(self._t.get("error", "Error"), f"Could not create folder: {str(e)}")
 
     def _on_new_file(self):
         if not self._current_path: return
@@ -1170,11 +1166,10 @@ class ExplorerTable(QWidget):
             name = f"{base_name} ({counter}){ext}"
             counter += 1
             
-        name, ok = QInputDialog.getText(
-            self,
+        name, ok = self._show_input_dialog(
             self._t.get("new_file_title", "New File"),
             self._t.get("file_name_prompt", "File Name:"),
-            text=name,
+            default_text=name,
         )
         if ok and name:
             new_path = os.path.join(self._current_path, name)
@@ -1182,15 +1177,14 @@ class ExplorerTable(QWidget):
                 with open(new_path, 'w') as f: pass
                 self.scan_requested.emit(self._current_path)
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Could not create file: {str(e)}")
+                self._show_error_dialog(self._t.get("error", "Error"), f"Could not create file: {str(e)}")
 
     def _on_rename(self, old_path: str):
         old_name = os.path.basename(old_path)
-        name, ok = QInputDialog.getText(
-            self,
+        name, ok = self._show_input_dialog(
             self._t.get("rename_title", "Rename"),
             self._t.get("new_name_prompt", "New Name:"),
-            text=old_name,
+            default_text=old_name,
         )
         if ok and name and name != old_name:
             new_path = os.path.join(os.path.dirname(old_path), name)
@@ -1200,13 +1194,11 @@ class ExplorerTable(QWidget):
                     self._rename_entry_fn(old_path, new_path)
                 self.scan_requested.emit(os.path.dirname(old_path))
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Could not rename: {str(e)}")
+                self._show_error_dialog(self._t.get("error", "Error"), f"Could not rename: {str(e)}")
 
     def _on_delete(self, path: str):
-        reply = QMessageBox.question(self, "Confirm Delete", 
-                                   f"Are you sure you want to delete '{os.path.basename(path)}'?",
-                                   QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
+        msg = self._t.get("confirm_delete_msg", "Are you sure you want to delete '{name}'?").format(name=os.path.basename(path))
+        if self._show_confirm_dialog(self._t.get("confirm_delete_title", "Confirm Delete"), msg):
             try:
                 import shutil
                 if os.path.isdir(path):
@@ -1217,7 +1209,7 @@ class ExplorerTable(QWidget):
                     self._delete_entry_fn(path)
                 self.scan_requested.emit(os.path.dirname(path))
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Could not delete: {str(e)}")
+                self._show_error_dialog(self._t.get("error", "Error"), f"Could not delete: {str(e)}")
 
     def _on_clipboard_copy(self, paths: list[str], cut: bool = False):
         from PySide6.QtCore import QUrl, QMimeData
@@ -1243,7 +1235,7 @@ class ExplorerTable(QWidget):
                         else:
                             shutil.copy2(src, dst)
                     except Exception as e:
-                        QMessageBox.warning(self, "Paste Error", f"Failed to paste {src}: {str(e)}")
+                        self._show_error_dialog(self._t.get("paste_error", "Paste Error"), f"Failed to paste {src}: {str(e)}")
             self.scan_requested.emit(self._current_path)
 
     @staticmethod
