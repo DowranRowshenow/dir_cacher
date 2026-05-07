@@ -270,7 +270,7 @@ class ExplorerTable(QWidget):
     status_updated = Signal(str, str)
     home_requested = Signal()
     scan_requested = Signal(str)
-    
+
     _get_children_fn = None
     _rename_entry_fn = None
     _delete_entry_fn = None
@@ -313,7 +313,7 @@ class ExplorerTable(QWidget):
         self._spinner.setVisible(False)
         self._spinner.setToolTip("Scanning current directory...")
         # We'll use qta to set the icon later when theme is set or in set_scanning
-        
+
         toolbar.addWidget(self._back_btn)
         toolbar.addWidget(self._breadcrumb, 1)
         toolbar.addWidget(self._spinner)
@@ -322,23 +322,30 @@ class ExplorerTable(QWidget):
         # Table
         self._table = QTableWidget()
         self._table.setColumnCount(6)
-        self.column_names = ["Name", "Type", "Size", "Date Modified", "Date Created", "Author"]
+        self.column_names = [
+            "Name",
+            "Type",
+            "Size",
+            "Date Modified",
+            "Date Created",
+            "Author",
+        ]
         self._table.setHorizontalHeaderLabels(self.column_names)
-        
+
         hh = self._table.horizontalHeader()
         hh.setContextMenuPolicy(Qt.CustomContextMenu)
         hh.customContextMenuRequested.connect(self._header_context_menu)
-        
+
         for i in range(6):
             hh.setSectionResizeMode(i, QHeaderView.Interactive)
-        
+
         hh.resizeSection(0, 400)
         hh.resizeSection(1, 100)
         hh.resizeSection(2, 80)
         hh.resizeSection(3, 140)
         hh.resizeSection(4, 140)
         hh.resizeSection(5, 120)
-        
+
         hh.setStretchLastSection(True)
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hh.setCascadingSectionResizes(True)
@@ -408,9 +415,11 @@ class ExplorerTable(QWidget):
             self._breadcrumb.set_theme(is_dark)
 
         self._back_btn.setIcon(qta.icon("fa5s.arrow-left", color=fg))
-        
+
         # Update spinner icon with theme-aware color
-        self._spinner_icon = qta.icon("fa5s.spinner", color="#0078d4", animation=qta.Spin(self._spinner))
+        self._spinner_icon = qta.icon(
+            "fa5s.spinner", color="#0078d4", animation=qta.Spin(self._spinner)
+        )
         self._spinner.setPixmap(self._spinner_icon.pixmap(QSize(16, 16)))
 
         self._table.setStyleSheet(
@@ -501,7 +510,9 @@ class ExplorerTable(QWidget):
         self._history = []
         self._back_btn.setEnabled(False)
 
-    def set_data_source(self, get_children_fn, rename_entry_fn=None, delete_entry_fn=None):
+    def set_data_source(
+        self, get_children_fn, rename_entry_fn=None, delete_entry_fn=None
+    ):
         self._get_children_fn = get_children_fn
         self._rename_entry_fn = rename_entry_fn
         self._delete_entry_fn = delete_entry_fn
@@ -637,7 +648,9 @@ class ExplorerTable(QWidget):
             # Col 3 — Date Modified (Numeric Sortable)
             mtime = item.get("mtime", 0)
             try:
-                dt_m = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d  %H:%M")
+                dt_m = datetime.datetime.fromtimestamp(mtime).strftime(
+                    "%Y-%m-%d  %H:%M"
+                )
             except Exception:
                 dt_m = ""
             dm = SortableItem(dt_m, is_dir, mtime)
@@ -647,7 +660,9 @@ class ExplorerTable(QWidget):
             # Col 4 — Date Created (Numeric Sortable)
             ctime = item.get("ctime", 0)
             try:
-                dt_c = datetime.datetime.fromtimestamp(ctime).strftime("%Y-%m-%d  %H:%M")
+                dt_c = datetime.datetime.fromtimestamp(ctime).strftime(
+                    "%Y-%m-%d  %H:%M"
+                )
             except Exception:
                 dt_c = ""
             dc = SortableItem(dt_c, is_dir, ctime)
@@ -684,33 +699,47 @@ class ExplorerTable(QWidget):
     def contextMenuEvent(self, event):
         pos = event.pos()
         item = self._table.itemAt(self._table.viewport().mapFromParent(pos))
-        
+
         # Determine theme-aware colors
         is_dark = self.palette().window().color().lightness() < 128
-        
+
         if item:
             self._context_menu(self._table.viewport().mapFromParent(pos))
         else:
             # Background context menu
             menu = QMenu(self)
             menu.setStyleSheet("QMenu::item { padding: 6px 10px 6px 16px; }")
-            
-            new_menu = menu.addMenu(qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New"))
-            new_folder_act = new_menu.addAction(qta.icon("fa5s.folder", color="#f0a30a"), self._t.get("folder", "Folder"))
-            new_file_act = new_menu.addAction(qta.icon("fa5s.file-alt", color="#0078d4"), self._t.get("text_document", "Text Document"))
-            
+
+            new_menu = menu.addMenu(
+                qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New")
+            )
+            new_folder_act = new_menu.addAction(
+                qta.icon("fa5s.folder", color="#f0a30a"),
+                self._t.get("folder", "Folder"),
+            )
+            new_file_act = new_menu.addAction(
+                qta.icon("fa5s.file-alt", color="#0078d4"),
+                self._t.get("text_document", "Text Document"),
+            )
+
             clipboard = QApplication.clipboard()
             paste_act = None
             if clipboard.mimeData().hasUrls():
                 menu.addSeparator()
-                paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste"))
+                paste_act = menu.addAction(
+                    qta.icon("fa5s.paste", color="#aaaaaa"),
+                    self._t.get("paste", "Paste"),
+                )
             menu.addSeparator()
-            refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), self._t.get("refresh", "Refresh Folder"))
-            
+            refresh_act = menu.addAction(
+                qta.icon("fa5s.sync", color="#107c10"),
+                self._t.get("refresh", "Refresh Folder"),
+            )
+
             action = menu.exec(event.globalPos())
             if not self._current_path:
                 return
-                
+
             if action == refresh_act:
                 self.scan_requested.emit(self._current_path)
             elif action == new_folder_act:
@@ -724,15 +753,19 @@ class ExplorerTable(QWidget):
         menu = QMenu(self)
         fg = "#ffffff" if self._highlight_delegate.is_dark else "#1a1a1a"
         bg = "#2d2d2d" if self._highlight_delegate.is_dark else "#ffffff"
-        menu.setStyleSheet(f"QMenu {{ background-color: {bg}; color: {fg}; border: 1px solid #555; }} QMenu::item {{ padding: 4px 20px; }} QMenu::item:selected {{ background-color: #0078d4; }}")
-        
+        menu.setStyleSheet(
+            f"QMenu {{ background-color: {bg}; color: {fg}; border: 1px solid #555; }} QMenu::item {{ padding: 4px 20px; }} QMenu::item:selected {{ background-color: #0078d4; }}"
+        )
+
         for i, name in enumerate(self.column_names):
             action = menu.addAction(name)
             action.setCheckable(True)
             action.setChecked(not self._table.isColumnHidden(i))
             # Name column (0) shouldn't be hideable easily, but we allow it
-            action.triggered.connect(lambda checked, idx=i: self._table.setColumnHidden(idx, not checked))
-        
+            action.triggered.connect(
+                lambda checked, idx=i: self._table.setColumnHidden(idx, not checked)
+            )
+
         menu.exec_(self._table.horizontalHeader().mapToGlobal(pos))
 
     def wheelEvent(self, event):
@@ -746,7 +779,7 @@ class ExplorerTable(QWidget):
                 self._table.horizontalScrollBar().setValue(
                     self._table.horizontalScrollBar().value() - delta
                 )
-                return True # Stop propagation
+                return True  # Stop propagation
         return super().eventFilter(source, event)
 
     def _context_menu(self, pos):
@@ -780,34 +813,62 @@ class ExplorerTable(QWidget):
         icon_gray = "#aaaaaa" if is_dark else "#888888"
 
         open_act = menu.addAction(
-            qta.icon("fa5s.external-link-alt", color=primary_fg), self._t.get("open", "Open")
+            qta.icon("fa5s.external-link-alt", color=primary_fg),
+            self._t.get("open", "Open"),
         )
         reveal_act = menu.addAction(
-            qta.icon("fa5s.folder-open", color="#f0a30a"), self._t.get("show_in_explorer", "Show in File Explorer")
+            qta.icon("fa5s.folder-open", color="#f0a30a"),
+            self._t.get("show_in_explorer", "Show in File Explorer"),
         )
         menu.addSeparator()
-        
-        new_menu = menu.addMenu(qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New"))
-        new_folder_act = new_menu.addAction(qta.icon("fa5s.folder", color="#f0a30a"), self._t.get("folder", "Folder"))
-        new_file_act = new_menu.addAction(qta.icon("fa5s.file-alt", color="#0078d4"), self._t.get("text_document", "Text Document"))
-        
+
+        new_menu = menu.addMenu(
+            qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New")
+        )
+        new_folder_act = new_menu.addAction(
+            qta.icon("fa5s.folder", color="#f0a30a"), self._t.get("folder", "Folder")
+        )
+        new_file_act = new_menu.addAction(
+            qta.icon("fa5s.file-alt", color="#0078d4"),
+            self._t.get("text_document", "Text Document"),
+        )
+
         menu.addSeparator()
-        copy_act = menu.addAction(qta.icon("fa5s.copy", color=icon_gray), self._t.get("copy_path", "Copy Path"))
-        prop_act = menu.addAction(qta.icon("fa5s.info-circle", color=icon_gray), self._t.get("properties", "Properties"))
+        copy_act = menu.addAction(
+            qta.icon("fa5s.copy", color=icon_gray),
+            self._t.get("copy_path", "Copy Path"),
+        )
+        prop_act = menu.addAction(
+            qta.icon("fa5s.info-circle", color=icon_gray),
+            self._t.get("properties", "Properties"),
+        )
         menu.addSeparator()
-        rename_act = menu.addAction(qta.icon("fa5s.edit", color=icon_gray), self._t.get("rename", "Rename"))
-        delete_act = menu.addAction(qta.icon("fa5s.trash-alt", color="#d1242f"), self._t.get("delete", "Delete"))
+        rename_act = menu.addAction(
+            qta.icon("fa5s.edit", color=icon_gray), self._t.get("rename", "Rename")
+        )
+        delete_act = menu.addAction(
+            qta.icon("fa5s.trash-alt", color="#d1242f"), self._t.get("delete", "Delete")
+        )
         menu.addSeparator()
-        
+
         # Clipboard actions
-        c_copy_act = menu.addAction(qta.icon("fa5s.clone", color=icon_gray), self._t.get("copy", "Copy"))
-        c_cut_act = menu.addAction(qta.icon("fa5s.cut", color=icon_gray), self._t.get("cut", "Cut"))
+        c_copy_act = menu.addAction(
+            qta.icon("fa5s.clone", color=icon_gray), self._t.get("copy", "Copy")
+        )
+        c_cut_act = menu.addAction(
+            qta.icon("fa5s.cut", color=icon_gray), self._t.get("cut", "Cut")
+        )
         paste_act = None
         if QApplication.clipboard().mimeData().hasUrls():
-            paste_act = menu.addAction(qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste"))
-        
+            paste_act = menu.addAction(
+                qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste")
+            )
+
         menu.addSeparator()
-        refresh_act = menu.addAction(qta.icon("fa5s.sync", color="#107c10"), self._t.get("refresh", "Refresh (Rescan)"))
+        refresh_act = menu.addAction(
+            qta.icon("fa5s.sync", color="#107c10"),
+            self._t.get("refresh", "Refresh (Rescan)"),
+        )
 
         action = menu.exec(self._table.viewport().mapToGlobal(pos))
         path = self._normalize_path(path)
@@ -916,13 +977,13 @@ class ExplorerTable(QWidget):
     def _dialog_stylesheet(self) -> str:
         """Return a stylesheet string for custom themed dialogs."""
         is_dark = self._is_dark
-        bg        = "#1e1e1e" if is_dark else "#ffffff"
-        fg        = "#ffffff" if is_dark else "#1a1a1a"
+        bg = "#1e1e1e" if is_dark else "#ffffff"
+        fg = "#ffffff" if is_dark else "#1a1a1a"
         header_bg = "#252525" if is_dark else "#f3f3f3"
-        border    = "#444444" if is_dark else "#d1d1d1"
-        btn_bg    = "#3a3a3a" if is_dark else "#f0f0f0"
+        border = "#444444" if is_dark else "#d1d1d1"
+        btn_bg = "#3a3a3a" if is_dark else "#f0f0f0"
         btn_hover = "#4a4a4a" if is_dark else "#e0e0e0"
-        input_bg  = "#2d2d2d" if is_dark else "#ffffff"
+        input_bg = "#2d2d2d" if is_dark else "#ffffff"
         return f"""
             QDialog {{
                 background-color: {bg};
@@ -979,9 +1040,18 @@ class ExplorerTable(QWidget):
             }}
         """
 
-    def _show_input_dialog(self, title: str, label: str, default_text: str = "") -> tuple[str, bool]:
+    def _show_input_dialog(
+        self, title: str, label: str, default_text: str = ""
+    ) -> tuple[str, bool]:
         """Show a fully themed input dialog. Returns (text, ok)."""
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton
+        from PySide6.QtWidgets import (
+            QDialog,
+            QVBoxLayout,
+            QHBoxLayout,
+            QLabel,
+            QLineEdit,
+            QPushButton,
+        )
         from PySide6.QtCore import Qt
         from ui.styles import apply_dark_title_bar
 
@@ -1046,7 +1116,13 @@ class ExplorerTable(QWidget):
 
     def _show_confirm_dialog(self, title: str, message: str) -> bool:
         """Show a fully themed yes/no confirmation dialog. Returns True if Yes."""
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+        from PySide6.QtWidgets import (
+            QDialog,
+            QVBoxLayout,
+            QHBoxLayout,
+            QLabel,
+            QPushButton,
+        )
         from PySide6.QtCore import Qt
         from ui.styles import apply_dark_title_bar
 
@@ -1095,7 +1171,13 @@ class ExplorerTable(QWidget):
 
     def _show_error_dialog(self, title: str, message: str):
         """Show a fully themed error dialog."""
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+        from PySide6.QtWidgets import (
+            QDialog,
+            QVBoxLayout,
+            QHBoxLayout,
+            QLabel,
+            QPushButton,
+        )
         from PySide6.QtCore import Qt
         from ui.styles import apply_dark_title_bar
 
@@ -1133,15 +1215,16 @@ class ExplorerTable(QWidget):
         dlg.exec()
 
     def _on_new_folder(self):
-        if not self._current_path: return
-        
+        if not self._current_path:
+            return
+
         base_name = "New Folder"
         name = base_name
         counter = 1
         while os.path.exists(os.path.join(self._current_path, name)):
             name = f"{base_name} ({counter})"
             counter += 1
-            
+
         name, ok = self._show_input_dialog(
             self._t.get("new_folder_title", "New Folder"),
             self._t.get("folder_name_prompt", "Folder Name:"),
@@ -1153,11 +1236,14 @@ class ExplorerTable(QWidget):
                 os.makedirs(new_path, exist_ok=False)
                 self.scan_requested.emit(self._current_path)
             except Exception as e:
-                self._show_error_dialog(self._t.get("error", "Error"), f"Could not create folder: {str(e)}")
+                self._show_error_dialog(
+                    self._t.get("error", "Error"), f"Could not create folder: {str(e)}"
+                )
 
     def _on_new_file(self):
-        if not self._current_path: return
-        
+        if not self._current_path:
+            return
+
         base_name = "New Text Document"
         ext = ".txt"
         name = f"{base_name}{ext}"
@@ -1165,7 +1251,7 @@ class ExplorerTable(QWidget):
         while os.path.exists(os.path.join(self._current_path, name)):
             name = f"{base_name} ({counter}){ext}"
             counter += 1
-            
+
         name, ok = self._show_input_dialog(
             self._t.get("new_file_title", "New File"),
             self._t.get("file_name_prompt", "File Name:"),
@@ -1174,10 +1260,13 @@ class ExplorerTable(QWidget):
         if ok and name:
             new_path = os.path.join(self._current_path, name)
             try:
-                with open(new_path, 'w') as f: pass
+                with open(new_path, "w") as f:
+                    pass
                 self.scan_requested.emit(self._current_path)
             except Exception as e:
-                self._show_error_dialog(self._t.get("error", "Error"), f"Could not create file: {str(e)}")
+                self._show_error_dialog(
+                    self._t.get("error", "Error"), f"Could not create file: {str(e)}"
+                )
 
     def _on_rename(self, old_path: str):
         old_name = os.path.basename(old_path)
@@ -1194,13 +1283,20 @@ class ExplorerTable(QWidget):
                     self._rename_entry_fn(old_path, new_path)
                 self.scan_requested.emit(os.path.dirname(old_path))
             except Exception as e:
-                self._show_error_dialog(self._t.get("error", "Error"), f"Could not rename: {str(e)}")
+                self._show_error_dialog(
+                    self._t.get("error", "Error"), f"Could not rename: {str(e)}"
+                )
 
     def _on_delete(self, path: str):
-        msg = self._t.get("confirm_delete_msg", "Are you sure you want to delete '{name}'?").format(name=os.path.basename(path))
-        if self._show_confirm_dialog(self._t.get("confirm_delete_title", "Confirm Delete"), msg):
+        msg = self._t.get(
+            "confirm_delete_msg", "Are you sure you want to delete '{name}'?"
+        ).format(name=os.path.basename(path))
+        if self._show_confirm_dialog(
+            self._t.get("confirm_delete_title", "Confirm Delete"), msg
+        ):
             try:
                 import shutil
+
                 if os.path.isdir(path):
                     shutil.rmtree(path)
                 else:
@@ -1209,22 +1305,27 @@ class ExplorerTable(QWidget):
                     self._delete_entry_fn(path)
                 self.scan_requested.emit(os.path.dirname(path))
             except Exception as e:
-                self._show_error_dialog(self._t.get("error", "Error"), f"Could not delete: {str(e)}")
+                self._show_error_dialog(
+                    self._t.get("error", "Error"), f"Could not delete: {str(e)}"
+                )
 
     def _on_clipboard_copy(self, paths: list[str], cut: bool = False):
         from PySide6.QtCore import QUrl, QMimeData
+
         mime = QMimeData()
         urls = [QUrl.fromLocalFile(p) for p in paths]
         mime.setUrls(urls)
-        # We can store 'cut' state in mime data too if we want native explorer behavior, 
+        # We can store 'cut' state in mime data too if we want native explorer behavior,
         # but for now we just handle standard copy.
         QApplication.clipboard().setMimeData(mime)
 
     def _on_paste(self):
-        if not self._current_path: return
+        if not self._current_path:
+            return
         mime = QApplication.clipboard().mimeData()
         if mime.hasUrls():
             import shutil
+
             for url in mime.urls():
                 src = url.toLocalFile()
                 if os.path.exists(src):
@@ -1235,7 +1336,10 @@ class ExplorerTable(QWidget):
                         else:
                             shutil.copy2(src, dst)
                     except Exception as e:
-                        self._show_error_dialog(self._t.get("paste_error", "Paste Error"), f"Failed to paste {src}: {str(e)}")
+                        self._show_error_dialog(
+                            self._t.get("paste_error", "Paste Error"),
+                            f"Failed to paste {src}: {str(e)}",
+                        )
             self.scan_requested.emit(self._current_path)
 
     @staticmethod
