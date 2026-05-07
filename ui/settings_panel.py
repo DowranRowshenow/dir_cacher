@@ -314,6 +314,25 @@ class SettingsPanel(QWidget):
         delim_layout.addWidget(self.delim_edit)
         app_layout.addWidget(delim_row)
         
+        # Wildcard row
+        wild_row = QWidget()
+        wild_row.setFixedHeight(56)
+        wild_layout = QHBoxLayout(wild_row)
+        wild_layout.setContentsMargins(16, 0, 16, 0)
+        
+        self._wildcard_label = QLabel("Wildcard Char")
+        self._wildcard_label.setStyleSheet("font-size: 13px; color: #1a1a1a; border: none;")
+        self.wildcard_edit = QLineEdit()
+        self.wildcard_edit.setPlaceholderText("*")
+        self.wildcard_edit.setFixedWidth(40)
+        self.wildcard_edit.setAlignment(Qt.AlignCenter)
+        self.wildcard_edit.textChanged.connect(lambda: self.settings_changed.emit())
+        
+        wild_layout.addWidget(self._wildcard_label)
+        wild_layout.addStretch()
+        wild_layout.addWidget(self.wildcard_edit)
+        app_layout.addWidget(wild_row)
+        
         root.addWidget(app_card)
         root.addStretch()
 
@@ -332,6 +351,7 @@ class SettingsPanel(QWidget):
         self._language_label.setText(t["language"])
         self._theme_label.setText(t["theme"])
         if hasattr(self, '_delim_label'): self._delim_label.setText(t.get("search_delimiter", "Search Delimiter"))
+        if hasattr(self, '_wildcard_label'): self._wildcard_label.setText(t.get("wildcard_char", "Wildcard Char"))
         
         # Update theme combo box items without triggering signal
         self.theme_combo.blockSignals(True)
@@ -460,5 +480,6 @@ class SettingsPanel(QWidget):
             ],
             "language": lang_code,
             "theme": theme_val,
-            "search_delimiter": self.delim_edit.text().strip() or "&"
+            "search_delimiter": self.delim_edit.text().strip() or "&",
+            "wildcard_char": self.wildcard_edit.text().strip() or "*"
         }

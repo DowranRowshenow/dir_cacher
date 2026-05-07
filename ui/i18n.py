@@ -58,7 +58,8 @@ TRANSLATIONS = {
         "confirm_delete_title": "Confirm Delete",
         "confirm_delete_msg": "Are you sure you want to delete '{name}'?",
         "error": "Error",
-        "paste_error": "Paste Error"
+        "paste_error": "Paste Error",
+        "wildcard_char": "Wildcard Char"
     },
     "tr": {
         "explorer": "Gezgin",
@@ -118,7 +119,8 @@ TRANSLATIONS = {
         "confirm_delete_title": "Silmeyi Onayla",
         "confirm_delete_msg": "'{name}' öğesini silmek istediğinizden emin misiniz?",
         "error": "Hata",
-        "paste_error": "Yapıştırma Hatası"
+        "paste_error": "Yapıştırma Hatası",
+        "wildcard_char": "Joker Karakter"
     },
     "ru": {
         "explorer": "Проводник",
@@ -178,7 +180,8 @@ TRANSLATIONS = {
         "confirm_delete_title": "Подтверждение удаления",
         "confirm_delete_msg": "Вы уверены, что хотите удалить '{name}'?",
         "error": "Ошибка",
-        "paste_error": "Ошибка вставки"
+        "paste_error": "Ошибка вставки",
+        "wildcard_char": "Символ подстановки"
     },
     "tk": {
         "explorer": "Gözden geçiriji",
@@ -238,6 +241,7 @@ TRANSLATIONS = {
         "confirm_delete_title": "Pozmagy tassykla",
         "confirm_delete_msg": "'{name}' elementini pozmak isleýändigiňize ynamlyňyzmy?",
         "error": "Ýalňyşlyk",
-        "paste_error": "Ýelme ýalňyşlygy"
+        "paste_error": "Ýelme ýalňyşlygy",
+        "wildcard_char": "Ýabany nyşan"
     }
 }

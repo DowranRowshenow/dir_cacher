@@ -91,6 +91,7 @@ class ScanWorker(QObject):
             total = [0]
             batch = []
             import time as _time
+            scan_time = _time.time()
             last_emit_time = [0.0]
 
             def _entry_callback(path_p, parent_p, name_p, is_dir, size, mtime):
@@ -102,7 +103,7 @@ class ScanWorker(QObject):
                     batch.append((path, parent, name, is_dir, size, mtime, mtime))
                     total[0] += 1
                     if len(batch) >= 500:
-                        self._flush(conn, batch)
+                        self._flush(conn, batch, scan_time)
                         now = _time.time()
                         if now - last_emit_time[0] > 0.1:
                             self.progress.emit(f"Indexed {total[0]} items...")
@@ -137,7 +138,7 @@ class ScanWorker(QObject):
                                         if is_dir and self.recursive:
                                             stack.append(entry.path)
                                         if len(batch) >= 500:
-                                            self._flush(conn, batch)
+                                            self._flush(conn, batch, scan_time)
                                             now = _time.time()
                                             if now - last_emit_time[0] > 0.1:
                                                 self.progress.emit(f"Indexed {total[0]} items...")
@@ -152,17 +153,22 @@ class ScanWorker(QObject):
                     _scanner_lib.scan_directory(c_root, self._cancel_flag, self._pause_flag, c_callback)
 
             if batch:
-                self._flush(conn, batch)
+                self._flush(conn, batch, scan_time)
+                
+            if not self._is_cancelled:
+                from database import Database
+                db = Database(self.db_path)
+                db.cleanup_missing(self.root_paths, scan_time, self.recursive)
                 
             conn.close()
             self.finished.emit(total[0])
         except Exception as e:
             self.error.emit(str(e))
 
-    def _flush(self, conn, batch):
+    def _flush(self, conn, batch, scan_time):
         from database import Database
         entries = [
-            {"path": b[0], "parent": b[1], "name": b[2], "is_dir": b[3], "size": b[4]}
+            {"path": b[0], "parent": b[1], "name": b[2], "is_dir": b[3], "size": b[4], "mtime": b[5], "ctime": b[6], "last_seen": scan_time}
             for b in batch
         ]
         db = Database(self.db_path)

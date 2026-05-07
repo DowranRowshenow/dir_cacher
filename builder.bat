@@ -53,7 +53,7 @@ robocopy . "dist\%PROJECT_NAME%_Portable\app" /E /XF *.db *.log *.spec *.exe *.b
 
 echo Copying bundled python (this will take a moment)...
 robocopy "..\.venv" "dist\%PROJECT_NAME%_Portable\python" /E /MT:16 /NFL /NDL >nul
-copy "logo.ico" "dist\%PROJECT_NAME%_Portable\app\logo.ico" >nul
+copy "assets\logo.ico" "dist\%PROJECT_NAME%_Portable\app\assets\logo.ico" >nul
 :: Use a renamed interpreter to force a unique taskbar identity
 copy "dist\%PROJECT_NAME%_Portable\python\Scripts\pythonw.exe" "dist\%PROJECT_NAME%_Portable\python\Scripts\DirCache.exe" >nul
 
@@ -66,7 +66,7 @@ echo exit
 ) > "dist\%PROJECT_NAME%_Portable\Launch_DirCache.bat"
 
 echo Creating Windows Shortcut...
-powershell -Command "$s=(New-Object -COM WScript.Shell).CreateShortcut('dist\%PROJECT_NAME%_Portable\DirCache.lnk');$s.TargetPath='cmd.exe';$s.Arguments='/c Launch_DirCache.bat';$s.WorkingDirectory='%~dp0dist\%PROJECT_NAME%_Portable';$s.IconLocation='%~dp0dist\%PROJECT_NAME%_Portable\app\logo.ico';$s.WindowStyle=7;$s.Save()"
+powershell -Command "$s=(New-Object -COM WScript.Shell).CreateShortcut('dist\%PROJECT_NAME%_Portable\DirCache.lnk');$s.TargetPath='cmd.exe';$s.Arguments='/c Launch_DirCache.bat';$s.WorkingDirectory='%~dp0dist\%PROJECT_NAME%_Portable';$s.IconLocation='%~dp0dist\%PROJECT_NAME%_Portable\app\assets\logo.ico';$s.WindowStyle=7;$s.Save()"
 
 echo.
 echo ===================================================

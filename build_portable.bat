@@ -19,7 +19,7 @@ echo [SUCCESS] App source synced.
 
 echo [3/3] Syncing Python environment (this may take a minute)...
 robocopy ".venv" "%PORTABLE_DIR%\python" /E /MT:16 /NFL /NDL /XD Include >nul
-copy "logo.ico" "%PORTABLE_DIR%\app\logo.ico" >nul
+copy "assets\logo.ico" "%PORTABLE_DIR%\app\assets\logo.ico" >nul
 :: Use a renamed interpreter to force a unique taskbar identity
 copy "%PORTABLE_DIR%\python\Scripts\pythonw.exe" "%PORTABLE_DIR%\python\Scripts\DirCache.exe" >nul
 
@@ -32,7 +32,7 @@ echo exit
 ) > "%PORTABLE_DIR%\Launch_DirCache.bat"
 
 echo Creating Windows Shortcut...
-powershell -Command "$s=(New-Object -COM WScript.Shell).CreateShortcut('%PORTABLE_DIR%\DirCache.lnk');$s.TargetPath='cmd.exe';$s.Arguments='/c Launch_DirCache.bat';$s.WorkingDirectory='%~dp0%PORTABLE_DIR%';$s.IconLocation='%~dp0%PORTABLE_DIR%\app\logo.ico';$s.WindowStyle=7;$s.Save()"
+powershell -Command "$s=(New-Object -COM WScript.Shell).CreateShortcut('%PORTABLE_DIR%\DirCache.lnk');$s.TargetPath='cmd.exe';$s.Arguments='/c Launch_DirCache.bat';$s.WorkingDirectory='%~dp0%PORTABLE_DIR%';$s.IconLocation='%~dp0%PORTABLE_DIR%\app\assets\logo.ico';$s.WindowStyle=7;$s.Save()"
 
 echo.
 echo ===================================================

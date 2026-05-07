@@ -370,12 +370,12 @@ class MainWindow(QMainWindow):
             # Generate a blue checkmark
             icon = qta.icon("fa5s.check", color="#0078d4")
             pix = icon.pixmap(QSize(12, 12))
-            pix.save("check_blue.png")
+            pix.save("assets/check_blue.png")
 
             # Generate a white checkmark
             icon_w = qta.icon("fa5s.check", color="#ffffff")
             pix_w = icon_w.pixmap(QSize(12, 12))
-            pix_w.save("check_white.png")
+            pix_w.save("assets/check_white.png")
         except Exception:
             pass
 
@@ -467,7 +467,7 @@ class MainWindow(QMainWindow):
             }
             QCheckBox::indicator:checked {
                 border: 1px solid #0078d4;
-                image: url(check_blue.png);
+                image: url(assets/check_blue.png);
             }
             QCheckBox::indicator:hover { border-color: #0078d4; }
         """
@@ -1369,7 +1369,7 @@ class MainWindow(QMainWindow):
             f"color: {subtext}; background: transparent; border: none;"
         )
 
-        _cb_check_img = "check_white.png" if is_dark else "check_blue.png"
+        _cb_check_img = "assets/check_white.png" if is_dark else "assets/check_blue.png"
         _cb_border = "#ffffff" if is_dark else "#c8c8c8"
         _cb_style = f"""
             QCheckBox {{ font-size: 11px; color: {subtext}; background: transparent; padding: 0 4px; }}
@@ -1544,7 +1544,6 @@ class MainWindow(QMainWindow):
         """
         )
 
-
         # Style for the Type menu button
         self.type_btn.setStyleSheet(
             f"""
@@ -1591,8 +1590,6 @@ class MainWindow(QMainWindow):
             QMenu::item:selected {{ background-color: {'#3d3d3d' if is_dark else '#f0f0f0'}; }}
         """
         )
-
-
 
         # Update labels in filter bar
 

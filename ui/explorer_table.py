@@ -270,6 +270,7 @@ class ExplorerTable(QWidget):
     status_updated = Signal(str, str)
     home_requested = Signal()
     scan_requested = Signal(str)
+    load_more_requested = Signal(str, int, int) # query, offset, limit
 
     _get_children_fn = None
     _rename_entry_fn = None
@@ -386,6 +387,17 @@ class ExplorerTable(QWidget):
         self._get_children_fn = None
         self._t = {}
         self._is_dark = False
+
+        # Pagination state
+        self._offset = 0
+        self._limit = 1000
+        self._has_more = True
+        self._is_loading = False
+        self._is_search_mode = False
+        self._current_search_query = ""
+
+        # Connect scrollbar for infinite scrolling
+        self._table.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
     def update_translations(self, t: dict):
         self._t = t
@@ -537,7 +549,10 @@ class ExplorerTable(QWidget):
         self._root_path = root_path or self._root_path
 
         self._back_btn.setEnabled(len(self._history) > 0)
-        items = self._get_children_fn(path)
+        self._offset = 0
+        self._has_more = True
+        self._is_search_mode = False
+        items = self._get_children_fn(path, limit=self._limit, offset=0)
         self._highlight_delegate.set_query("")
         self._load_items(items)
         self._breadcrumb.set_path(path, self._root_label, self._root_path)
@@ -546,6 +561,37 @@ class ExplorerTable(QWidget):
         self.status_updated.emit(
             f"{'1 item' if n == 1 else f'{n:,} items'} in this folder.", f"{n:,} items"
         )
+
+    def _on_scroll(self, value):
+        if not self._has_more or self._is_loading:
+            return
+        
+        # If we are within 200 pixels of the bottom, load more
+        bar = self._table.verticalScrollBar()
+        if value > bar.maximum() - 200:
+            self._load_more()
+
+    def _load_more(self):
+        if self._is_loading or not self._has_more:
+            return
+        
+        self._is_loading = True
+        self._offset += self._limit
+        
+        if self._is_search_mode:
+            # Emit signal to main.py to fetch more search results
+            self.load_more_requested.emit(self._current_search_query, self._offset, self._limit)
+        else:
+            # Fetch more children for current folder
+            items = self._get_children_fn(self._current_path, limit=self._limit, offset=self._offset)
+            if items:
+                self._append_items(items)
+                if len(items) < self._limit:
+                    self._has_more = False
+            else:
+                self._has_more = False
+        
+        self._is_loading = False
 
     def show_virtual_roots(self, roots: list[dict], label: str = "Indexed Locations"):
         self._history = []
@@ -561,13 +607,22 @@ class ExplorerTable(QWidget):
             f"{n} root{'s' if n != 1 else ''} configured.", f"{n} roots"
         )
 
-    def set_search_results(self, items: list[dict], query: str):
+    def set_search_results(self, items: list[dict], query: str, offset: int = 0):
+        self._is_search_mode = True
+        self._current_search_query = query
+        self._offset = offset
+        self._has_more = len(items) >= self._limit
+        
         self._highlight_delegate.set_query(query)
-        self._load_items(items)
-        n = len(items)
+        if offset == 0:
+            self._load_items(items)
+        else:
+            self._append_items(items)
+            
+        n = self._table.rowCount()
         self._breadcrumb.set_path("", f'Search: "{query}"')
         self.status_updated.emit(
-            f"{n:,} result{'s' if n != 1 else ''} for \"{query}\".", f"{n:,} results"
+            f"Showing {n:,} result{'s' if n != 1 else ''} for \"{query}\".", f"{n:,} results"
         )
 
     # ── Navigation ─────────────────────────────────────────
@@ -604,8 +659,17 @@ class ExplorerTable(QWidget):
         tbl.blockSignals(True)
         tbl.setSortingEnabled(False)  # disable during insert
         tbl.setRowCount(0)
+        self._offset = 0
+        self._has_more = len(items) >= self._limit
+        self._append_items(items)
 
-        # Folder first sorting
+    def _append_items(self, items: list[dict]):
+        tbl = self._table
+        tbl.setUpdatesEnabled(False)
+        tbl.blockSignals(True)
+        tbl.setSortingEnabled(False)
+        
+        # Folder first sorting for the BATCH (optional, but consistent)
         def sort_key(x):
             return (0 if x.get("is_dir") else 1, x.get("name", "").lower())
 
@@ -696,58 +760,7 @@ class ExplorerTable(QWidget):
         self._back_btn.setEnabled(False)
 
     # ── Context menu ───────────────────────────────────────
-    def contextMenuEvent(self, event):
-        pos = event.pos()
-        item = self._table.itemAt(self._table.viewport().mapFromParent(pos))
 
-        # Determine theme-aware colors
-        is_dark = self.palette().window().color().lightness() < 128
-
-        if item:
-            self._context_menu(self._table.viewport().mapFromParent(pos))
-        else:
-            # Background context menu
-            menu = QMenu(self)
-            menu.setStyleSheet("QMenu::item { padding: 6px 10px 6px 16px; }")
-
-            new_menu = menu.addMenu(
-                qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New")
-            )
-            new_folder_act = new_menu.addAction(
-                qta.icon("fa5s.folder", color="#f0a30a"),
-                self._t.get("folder", "Folder"),
-            )
-            new_file_act = new_menu.addAction(
-                qta.icon("fa5s.file-alt", color="#0078d4"),
-                self._t.get("text_document", "Text Document"),
-            )
-
-            clipboard = QApplication.clipboard()
-            paste_act = None
-            if clipboard.mimeData().hasUrls():
-                menu.addSeparator()
-                paste_act = menu.addAction(
-                    qta.icon("fa5s.paste", color="#aaaaaa"),
-                    self._t.get("paste", "Paste"),
-                )
-            menu.addSeparator()
-            refresh_act = menu.addAction(
-                qta.icon("fa5s.sync", color="#107c10"),
-                self._t.get("refresh", "Refresh Folder"),
-            )
-
-            action = menu.exec(event.globalPos())
-            if not self._current_path:
-                return
-
-            if action == refresh_act:
-                self.scan_requested.emit(self._current_path)
-            elif action == new_folder_act:
-                self._on_new_folder()
-            elif action == new_file_act:
-                self._on_new_file()
-            elif action == paste_act:
-                self._on_paste()
 
     def _header_context_menu(self, pos):
         menu = QMenu(self)
@@ -784,15 +797,12 @@ class ExplorerTable(QWidget):
 
     def _context_menu(self, pos):
         item = self._table.itemAt(pos)
-        if not item:
-            return
-        row = item.row()
-        name_item = self._table.item(row, 0)
-        if not name_item:
-            return
-        data = name_item.data(Qt.UserRole) or {}
-        path = data.get("path", "")
-
+        
+        # Determine theme-aware colors
+        is_dark = self.palette().window().color().lightness() < 128
+        primary_fg = "#ffffff" if is_dark else "#1a1a1a"
+        icon_gray = "#aaaaaa" if is_dark else "#888888"
+        
         menu = QMenu(self)
         menu.setStyleSheet(
             """
@@ -807,10 +817,62 @@ class ExplorerTable(QWidget):
             """
         )
 
-        # Use theme-aware colors for icons
-        is_dark = self.palette().window().color().lightness() < 128
-        primary_fg = "#ffffff" if is_dark else "#1a1a1a"
-        icon_gray = "#aaaaaa" if is_dark else "#888888"
+        if not item:
+            # Background context menu
+            new_menu = menu.addMenu(
+                qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New")
+            )
+            new_folder_act = new_menu.addAction(
+                qta.icon("fa5s.folder", color="#f0a30a"),
+                self._t.get("folder", "Folder"),
+            )
+            new_file_act = new_menu.addAction(
+                qta.icon("fa5s.file-alt", color="#0078d4"),
+                self._t.get("text_document", "Text Document"),
+            )
+
+            clipboard = QApplication.clipboard()
+            paste_act = None
+            if clipboard.mimeData().hasUrls():
+                menu.addSeparator()
+                paste_act = menu.addAction(
+                    qta.icon("fa5s.paste", color="#aaaaaa"),
+                    self._t.get("paste", "Paste"),
+                )
+            menu.addSeparator()
+            prop_act = menu.addAction(
+                qta.icon("fa5s.info-circle", color=icon_gray),
+                self._t.get("properties", "Properties"),
+            )
+            refresh_act = menu.addAction(
+                qta.icon("fa5s.sync", color="#107c10"),
+                self._t.get("refresh", "Refresh Folder"),
+            )
+
+            action = menu.exec(self._table.viewport().mapToGlobal(pos))
+            if not self._current_path:
+                return
+
+            if action == refresh_act:
+                self.scan_requested.emit(self._current_path)
+            elif action == new_folder_act:
+                self._on_new_folder()
+            elif action == new_file_act:
+                self._on_new_file()
+            elif action == paste_act:
+                self._on_paste()
+            elif action == prop_act:
+                self._show_native_properties(self._current_path)
+            return
+
+        row = item.row()
+        name_item = self._table.item(row, 0)
+        if not name_item:
+            return
+        data = name_item.data(Qt.UserRole) or {}
+        path = data.get("path", "")
+
+
 
         open_act = menu.addAction(
             qta.icon("fa5s.external-link-alt", color=primary_fg),

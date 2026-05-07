@@ -55,6 +55,16 @@ class Database:
                 ) WITHOUT ROWID
                 """
             )
+            
+            # Check and add last_seen column if missing
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA table_info(entries)")
+            cols = {row[1] for row in cursor.fetchall()}
+            if "last_seen" not in cols:
+                try:
+                    self.conn.execute("ALTER TABLE entries ADD COLUMN last_seen REAL NOT NULL DEFAULT 0")
+                except Exception:
+                    pass
 
     def _migrate(self):
         """Migrate legacy schema (flat path/parent) to relation schema (directories/entries)."""
@@ -169,17 +179,50 @@ class Database:
             for e in entries:
                 pid = parent_ids.get(e["parent"])
                 if pid is not None:
-                    items.append((pid, e["name"], e["is_dir"], e["size"]))
+                    items.append((pid, e["name"], e["is_dir"], e["size"], e.get("mtime", 0), e.get("ctime", 0), e.get("last_seen", 0)))
             
             self.conn.executemany(
                 """
-                INSERT INTO entries (parent_id, name, is_dir, size)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO entries (parent_id, name, is_dir, size, mtime, ctime, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(parent_id, name) DO UPDATE SET
                     is_dir = excluded.is_dir,
-                    size   = excluded.size
+                    size   = excluded.size,
+                    mtime  = excluded.mtime,
+                    ctime  = excluded.ctime,
+                    last_seen = excluded.last_seen
                 """,
                 items,
+            )
+
+    def cleanup_missing(self, paths: List[str], scan_time: float, recursive: bool):
+        with self.conn:
+            for p in paths:
+                if recursive:
+                    self.conn.execute(
+                        """
+                        DELETE FROM entries 
+                        WHERE last_seen < ? 
+                          AND parent_id IN (
+                            SELECT id FROM directories 
+                            WHERE path = ? OR path GLOB ? OR path GLOB ?
+                          )
+                        """,
+                        (scan_time, p, p + "/*", p + "\\*")
+                    )
+                else:
+                    self.conn.execute(
+                        """
+                        DELETE FROM entries
+                        WHERE last_seen < ?
+                          AND parent_id = (SELECT id FROM directories WHERE path = ?)
+                        """,
+                        (scan_time, p)
+                    )
+            
+            # Delete orphaned directories
+            self.conn.execute(
+                "DELETE FROM directories WHERE id NOT IN (SELECT DISTINCT parent_id FROM entries)"
             )
 
     def replace_children(self, parent_path: str, entries: List[Dict]):
@@ -214,6 +257,8 @@ class Database:
         file_types: List[str] = None,
         min_mtime: float = 0,
         max_mtime: float = 0,
+        limit: int = 1000,
+        offset: int = 0,
     ) -> List[Dict]:
         cursor = self.conn.execute("SELECT id FROM directories WHERE path = ?", (parent_path,))
         row = cursor.fetchone()
@@ -236,7 +281,11 @@ class Database:
                 )
                 params.extend([f"%.{e}" for e in exts])
 
-        sql += " ORDER BY is_dir DESC, name ASC LIMIT 5000"
+        sql += " ORDER BY is_dir DESC, name ASC"
+        if limit > 0:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
         cursor = self.conn.execute(sql, params)
         rows = cursor.fetchall()
 
@@ -271,7 +320,10 @@ class Database:
         min_mtime: float = 0,
         max_mtime: float = 0,
         case_sensitive: bool = False,
-        delimiter: str = "&"
+        delimiter: str = "&",
+        wildcard_char: str = "*",
+        limit: int = 1000,
+        offset: int = 0,
     ) -> List[Dict]:
         terms = [t.strip() for t in query.split(delimiter) if t.strip()]
         if not terms and not file_types and min_mtime == 0:
@@ -288,7 +340,13 @@ class Database:
 
         for term in terms:
             sql += f" AND e.name {op} ?"
-            params.append(f"*{term}*" if case_sensitive else f"%{term}%")
+            if wildcard_char and wildcard_char in term:
+                if case_sensitive:
+                    params.append(term.replace(wildcard_char, "*"))
+                else:
+                    params.append(term.replace(wildcard_char, "%"))
+            else:
+                params.append(f"*{term}*" if case_sensitive else f"%{term}%")
 
         if file_types:
             exts = []
@@ -308,7 +366,10 @@ class Database:
             params.append(p)
             params.append(f"{p}/%")
 
-        sql += " LIMIT 2000"
+        if limit > 0:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
         cursor = self.conn.execute(sql, params)
         rows = cursor.fetchall()
 
