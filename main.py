@@ -237,6 +237,7 @@ class PathLogApp:
         )
         self.window.settings_panel.clear_cache_requested.connect(self.clear_cache)
         self.window.export_btn.clicked.connect(self.open_export_wizard)
+        self.window.closed.connect(self.shutdown)
         self.search_worker = None
 
         self.refresh_explorer()
@@ -1164,6 +1165,30 @@ class PathLogApp:
         if db:
             db.delete_entry(path)
 
+
+    def shutdown(self):
+        """Safe shutdown of all background processes and database connections."""
+        print("Shutting down DirCache...")
+        # 1. Stop all active scanners
+        for path, scanner in list(self.active_scanners.items()):
+            print(f"Stopping scanner for: {path}")
+            scanner.stop_scan()
+        self.active_scanners.clear()
+
+        # 2. Stop search worker if running
+        if self.search_worker and self.search_worker.isRunning():
+            self.search_worker.stop()
+            self.search_worker.wait()
+
+        # 3. Close database connections
+        if self.local_db:
+            print("Closing local database...")
+            self.local_db.close()
+            self.local_db = None
+        if self.shared_db:
+            print("Closing shared database...")
+            self.shared_db.close()
+            self.shared_db = None
 
 if __name__ == "__main__":
     app = PathLogApp()

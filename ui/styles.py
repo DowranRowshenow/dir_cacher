@@ -343,11 +343,11 @@ QScrollBar::sub-line:horizontal {
 /* Tooltips handled dynamically by set_theme in main_window.py */
 """
 
-def apply_dark_title_bar(window, is_dark: bool):
+def apply_dark_title_bar(window, is_dark: bool, bg_color: str = None):
     """
     Forces the Windows title bar to match the dark/light theme.
+    bg_color should be a hex string like '#ffffff' or '#1e1e1e'.
     """
-
     import sys
     if sys.platform != "win32":
         return
@@ -357,27 +357,32 @@ def apply_dark_title_bar(window, is_dark: bool):
         from ctypes import wintypes
         
         hwnd = window.winId()
-        # DWMWA_USE_IMMERSIVE_DARK_MODE: 
-        #   20 for Windows 10 Build 19041+
-        #   19 for older Windows 10 versions
+        
+        # 1. Immersive Dark Mode
         attribute = 20
         dark = ctypes.c_int(1 if is_dark else 0)
-        
-        # Try attribute 20 first
-        res = ctypes.windll.dwmapi.DwmSetWindowAttribute(
-            wintypes.HWND(hwnd),
-            attribute,
-            ctypes.byref(dark),
-            ctypes.sizeof(dark)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            wintypes.HWND(hwnd), attribute, ctypes.byref(dark), ctypes.sizeof(dark)
         )
-        if res != 0:
-            # Fallback to attribute 19
-            attribute = 19
+        
+        # 2. Windows 11 Caption Color Matching (if bg_color provided)
+        if bg_color and hasattr(ctypes.windll.dwmapi, "DwmSetWindowAttribute"):
+            # Convert hex #RRGGBB to 0x00BBGGRR
+            color_int = int(bg_color.lstrip('#'), 16)
+            r = (color_int >> 16) & 0xff
+            g = (color_int >> 8) & 0xff
+            b = color_int & 0xff
+            native_color = ctypes.c_int(b << 16 | g << 8 | r)
+            
+            # DWMWA_CAPTION_COLOR = 35
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                wintypes.HWND(hwnd),
-                attribute,
-                ctypes.byref(dark),
-                ctypes.sizeof(dark)
+                wintypes.HWND(hwnd), 35, ctypes.byref(native_color), ctypes.sizeof(native_color)
+            )
+            
+            # DWMWA_TEXT_COLOR = 36
+            text_color = ctypes.c_int(0xffffff if is_dark else 0x1a1a1a)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                wintypes.HWND(hwnd), 36, ctypes.byref(text_color), ctypes.sizeof(text_color)
             )
     except Exception:
         pass

@@ -80,11 +80,14 @@ class HighlightDelegate(QStyledItemDelegate):
         style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
 
         # Build rich text HTML
+        highlight_bg = "#ffe8a1" if not hasattr(self, "is_dark") or not self.is_dark else "#4a4a00"
+        highlight_fg = "#000000" if not hasattr(self, "is_dark") or not self.is_dark else "#ffffff"
+        
         start = html.escape(text[:idx])
         match = html.escape(text[idx : idx + len(self.query)])
         end = html.escape(text[idx + len(self.query) :])
 
-        html_str = f"<div style='white-space:nowrap;'>{start}<span style='background-color: #ffe8a1; color: #000000;'>{match}</span>{end}</div>"
+        html_str = f"<div style='white-space:nowrap;'>{start}<span style='background-color: {highlight_bg}; color: {highlight_fg};'>{match}</span>{end}</div>"
 
         doc = QTextDocument()
         doc.setDefaultFont(opt.font)
@@ -644,17 +647,32 @@ class ExplorerTable(QWidget):
         if not item:
             return
         data = item.data(Qt.UserRole)
-        if data and data.get("is_dir"):
-            path = data["path"]
-            self._history.append(self._current_path)
+        if data:
+            path = data.get("path")
+            if data.get("is_dir"):
+                self._history.append(self._current_path)
 
-            if not self._current_path:
-                # Coming from virtual root
-                self.navigate_to(
-                    path, root_label=item.text(), root_path=path, push_history=False
-                )
+                if not self._current_path:
+                    # Coming from virtual root
+                    self.navigate_to(
+                        path, root_label=item.text(), root_path=path, push_history=False
+                    )
+                else:
+                    self._highlight_delegate.set_query("") # Clear highlight on navigation
+                    self.navigate_to(path, push_history=False)
             else:
-                self.navigate_to(path, push_history=False)
+                # Open file using OS default handler
+                if path:
+                    try:
+                        # Normalize path for Windows (converts forward slashes, etc)
+                        path = os.path.normpath(path)
+                        os.startfile(path, 'open')
+                    except Exception:
+                        # Fallback for some systems or specific cases
+                        try:
+                            os.startfile(path)
+                        except Exception:
+                            pass
 
     # ── Rendering ──────────────────────────────────────────
     def _load_items(self, items: list[dict]):
@@ -758,6 +776,7 @@ class ExplorerTable(QWidget):
     def show_search_results(self, results, query):
         self._current_path = None
         self._breadcrumb.set_path("", root_label=f"Search: {query}")
+        self._highlight_delegate.set_query(query)
         self._load_items(results)
         self._back_btn.setEnabled(len(self._history) > 0)
 

@@ -9,6 +9,7 @@ from PySide6.QtCore import (
     QEvent,
     QPoint,
 )
+
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -22,7 +23,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QSizePolicy,
     QScrollArea,
-    QSizeGrip,
     QCheckBox,
     QComboBox,
     QMenu,
@@ -156,14 +156,14 @@ class MainWindow(QMainWindow):
     dir_cancel_requested = Signal(str)
     dir_pause_requested = Signal(str, bool)
     filter_changed = Signal()
+    closed = Signal()
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DirCache Explorer")
         self.dir_ui_map = {}
         self.is_dark = False
-        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.Window)
         self.resize(1080, 720)
         self.setMinimumSize(1000, 700)
         self.setStyleSheet(STYLESHEET)
@@ -172,71 +172,15 @@ class MainWindow(QMainWindow):
 
         self.central_widget = QWidget()
         self.central_widget.setObjectName("MainWindowContent")
-        self.central_widget.setStyleSheet(
-            """
-            #MainWindowContent {
-                background: #ffffff;
-                border: 1px solid #c8c8c8;
-                border-radius: 8px;
-            }
-        """
-        )
+        self.central_widget.setStyleSheet("""
+            #MainWindowContent { background: #ffffff; }
+        """)
         self.setCentralWidget(self.central_widget)
 
         layout = QVBoxLayout(self.central_widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # ── Win11 Custom Title Bar ──────────────────────────
-        self.title_bar = QWidget()
-        self.title_bar.setFixedHeight(32)
-        self.title_bar.setObjectName("TitleBar")
-        self.title_bar.mouseMoveEvent = self.mouseMoveEvent
-        self.title_bar.mousePressEvent = self.mousePressEvent
-        tb_layout = QHBoxLayout(self.title_bar)
-        tb_layout.setContentsMargins(0, 0, 0, 0)
-        tb_layout.setSpacing(0)
-
-        self.title_label = QLabel("DirCache Explorer")
-        self.title_label.setObjectName("TitleLabel")
-        self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet(
-            "color: #666666; font-size: 11px; font-family: 'Segoe UI Variable Display'; font-weight: 400;"
-        )
-
-        # Center the title by using a container with a layout
-        title_container = QWidget()
-        title_clayout = QHBoxLayout(title_container)
-        title_clayout.setContentsMargins(140, 0, 140, 0)  # Pad to keep center
-        title_clayout.addWidget(self.title_label)
-
-        tb_layout.addWidget(title_container, 1)
-
-        btn_style = """
-            QPushButton {
-                background: transparent; border: none; width: 46px; height: 32px;
-                font-size: 16px;
-            }
-            QPushButton:hover { background: rgba(0,0,0,0.1); }
-        """
-        self.min_btn = QPushButton("−")
-        self.min_btn.setStyleSheet(btn_style)
-        self.min_btn.clicked.connect(self.showMinimized)
-
-        self.max_btn = QPushButton("▢")
-        self.max_btn.setStyleSheet(btn_style)
-        self.max_btn.clicked.connect(self._toggle_maximize)
-
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setObjectName("CloseBtn")
-        self.close_btn.setStyleSheet(btn_style)
-        self.close_btn.clicked.connect(self.close)
-
-        tb_layout.addWidget(self.min_btn)
-        tb_layout.addWidget(self.max_btn)
-        tb_layout.addWidget(self.close_btn)
-
-        layout.addWidget(self.title_bar)
 
         # ── Sidebar & Stack ───────────────────────────────
         content_row = QWidget()
@@ -249,7 +193,7 @@ class MainWindow(QMainWindow):
         self.sidebar_widget.setObjectName("Sidebar")
         self.sidebar_widget.setFixedWidth(240)
         self.sidebar_widget.setStyleSheet(
-            "background: #f3f3f3; border-right: 1px solid #ebebeb; border-bottom-left-radius: 8px;"
+            "background: #f3f3f3; border-right: 1px solid #ebebeb;"
         )
         sb_layout = QVBoxLayout(self.sidebar_widget)
         sb_layout.setContentsMargins(0, 0, 0, 0)
@@ -319,15 +263,7 @@ class MainWindow(QMainWindow):
             "color: #aaaaaa; font-size: 11px; padding-left: 14px; background: transparent; border: none;"
         )
 
-        self.grip = QSizeGrip(self)
-        self.grip.setFixedSize(16, 16)
-        self.grip.setStyleSheet("background: transparent;")
-
         bot_layout.addWidget(version_lbl)
-
-        # Overlay the grip in the bottom right
-        self.grip.move(self.width() - 16, self.height() - 16)
-        self.grip.raise_()
 
         sb_layout.addWidget(bottom_pad)
 
@@ -620,6 +556,30 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress_bar)
 
         return self.explorer_page
+
+    def shutdown(self):
+        """Safe shutdown of all background processes and database connections."""
+        print("Shutting down DirCache...")
+        # 1. Stop all active scanners
+        for path, scanner in list(self.active_scanners.items()):
+            print(f"Stopping scanner for: {path}")
+            scanner.stop_scan()
+        self.active_scanners.clear()
+
+        # 2. Stop search worker if running
+        if self.search_worker and self.search_worker.isRunning():
+            self.search_worker.stop()
+            self.search_worker.wait()
+
+        # 3. Close database connections
+        if self.local_db:
+            print("Closing local database...")
+            self.local_db.close()
+            self.local_db = None
+        if self.shared_db:
+            print("Closing shared database...")
+            self.shared_db.close()
+            self.shared_db = None
 
     def _clear_all_filters(self):
         self.search_bar.clear()
@@ -1164,7 +1124,6 @@ class MainWindow(QMainWindow):
 
         # Window Title
         self.setWindowTitle(f"DIRCACHE - {t['explorer']}")
-        self.title_label.setText(f"DIRCACHE - {t['explorer']}")
 
         # Explorer Page
         self.search_bar.setPlaceholderText(t["search_placeholder"])
@@ -1192,8 +1151,8 @@ class MainWindow(QMainWindow):
 
         # Windows Dark Mode Title Bar Hack
         from ui.styles import apply_dark_title_bar
-
-        apply_dark_title_bar(self, is_dark)
+        bg = "#1e1e1e" if is_dark else "#ffffff"
+        apply_dark_title_bar(self, is_dark, bg)
 
         bg = "#1e1e1e" if is_dark else "#ffffff"
         fg = "#ffffff" if is_dark else "#1a1a1a"
@@ -1330,15 +1289,8 @@ class MainWindow(QMainWindow):
         """
         )
 
-        is_full = self.isFullScreen() or self.isMaximized()
         self.central_widget.setStyleSheet(
-            f"""
-            #MainWindowContent {{
-                background: {bg};
-                border: none;
-                border-radius: {'0px' if is_full else '8px'};
-            }}
-        """
+            f"#MainWindowContent {{ background: {bg}; }}"
         )
 
         self.sidebar_widget.setStyleSheet(
@@ -1346,7 +1298,6 @@ class MainWindow(QMainWindow):
             #Sidebar {{
                 background: {sidebar};
                 border-right: 1px solid {border};
-                border-bottom-left-radius: {'0px' if is_full else '8px'};
             }}
         """
         )
@@ -1362,10 +1313,6 @@ class MainWindow(QMainWindow):
         self.stack.setStyleSheet(f"background: {bg}; border: none;")
         self.settings_scroll.setStyleSheet(f"background: {bg}; border: none;")
 
-        self.title_bar.setStyleSheet(f"background: {sidebar};")
-        self.title_label.setStyleSheet(
-            f"color: {subtext}; font-size: 11px; background: transparent; border: none;"
-        )
         self.explorer_title.setStyleSheet(
             f"color: {fg}; background: transparent; border: none;"
         )
@@ -1615,30 +1562,12 @@ class MainWindow(QMainWindow):
         self.table.set_theme(is_dark)
         self.settings_panel.set_theme(is_dark)
 
-        # Update main buttons
-        btn_fg = "#ffffff" if is_dark else "#1a1a1a"
-        hover_bg = "rgba(255,255,255,0.1)" if is_dark else "rgba(0,0,0,0.05)"
-        btn_style = f"QPushButton {{ color: {btn_fg}; background: transparent; border: none; width: 46px; height: 32px; }} QPushButton:hover {{ background: {hover_bg}; }}"
-        self.min_btn.setStyleSheet(btn_style)
-        self.max_btn.setStyleSheet(btn_style)
-        self.close_btn.setStyleSheet(
-            btn_style + " QPushButton:hover { background: #c42b1c; color: white; }"
-        )
+
 
     def resizeEvent(self, event):
-        # Update theme to adjust border radius on resize/maximize
-        self.set_theme(self.is_dark_mode())
-        # Keep grip in bottom right
-        self.grip.move(self.width() - 16, self.height() - 16)
-        self.grip.raise_()
         super().resizeEvent(event)
 
     def changeEvent(self, event):
-        if event.type() == QEvent.WindowStateChange:
-            is_full = self.isFullScreen()
-            self.title_bar.setVisible(not is_full)
-            # Re-apply theme to fix border radius
-            self.set_theme(self.is_dark_mode())
         super().changeEvent(event)
 
     def is_dark_mode(self) -> bool:
@@ -1655,27 +1584,6 @@ class MainWindow(QMainWindow):
         # Trigger properties for currently selected item in table
         self.table._on_context_properties()
 
-    def _toggle_maximize(self):
-        if self.isMaximized():
-            self.showNormal()
-            self.max_btn.setText("▢")
-        else:
-            self.showMaximized()
-            self.max_btn.setText("❐")
-
-    # ── Window Dragging ───────────────────────────────────
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and event.position().y() < 32:
-            self._is_dragging = True
-            self._drag_start_pos = event.globalPosition().toPoint()
-            self._window_start_pos = self.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event):
-        if hasattr(self, "_is_dragging") and self._is_dragging:
-            delta = event.globalPosition().toPoint() - self._drag_start_pos
-            self.move(self._window_start_pos + delta)
-            event.accept()
-
-    def mouseReleaseEvent(self, event):
-        self._is_dragging = False
+    def closeEvent(self, event):
+        self.closed.emit()
+        event.accept()
