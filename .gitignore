@@ -3,6 +3,7 @@ __pycache__/
 build/
 dist/
 scanner_core/target/
+python/
 
 *.lock
 *.pyc
