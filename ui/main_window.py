@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QMenu,
     QWidgetAction,
+    QApplication,
 )
 from PySide6.QtGui import QColor, QPainter, QPixmap, QFont, QBrush
 import qtawesome as qta
@@ -172,15 +173,16 @@ class MainWindow(QMainWindow):
 
         self.central_widget = QWidget()
         self.central_widget.setObjectName("MainWindowContent")
-        self.central_widget.setStyleSheet("""
+        self.central_widget.setStyleSheet(
+            """
             #MainWindowContent { background: #ffffff; }
-        """)
+        """
+        )
         self.setCentralWidget(self.central_widget)
 
         layout = QVBoxLayout(self.central_widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-
 
         # ── Sidebar & Stack ───────────────────────────────
         content_row = QWidget()
@@ -209,7 +211,7 @@ class MainWindow(QMainWindow):
         app_icon_lbl = QLabel()
         app_icon_lbl.setFixedSize(20, 20)
         app_icon_lbl.setPixmap(
-            QPixmap("logo.png").scaled(
+            QPixmap("assets/logo.png").scaled(
                 18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation
             )
         )
@@ -258,7 +260,7 @@ class MainWindow(QMainWindow):
         bot_layout.setContentsMargins(6, 6, 6, 8)
         bot_layout.setSpacing(2)
 
-        version_lbl = QLabel("DirCache v1.2.0")
+        version_lbl = QLabel("DirCache v1.0")
         version_lbl.setStyleSheet(
             "color: #aaaaaa; font-size: 11px; padding-left: 14px; background: transparent; border: none;"
         )
@@ -280,6 +282,9 @@ class MainWindow(QMainWindow):
         self.settings_scroll.setFrameShape(QFrame.NoFrame)
         self.settings_scroll.setStyleSheet("background: #ffffff; border: none;")
         self.settings_panel = self.settings_scroll.widget()
+        self.settings_panel.text_context_menu_requested.connect(
+            self._create_text_context_menu
+        )
         self.stack.addWidget(self.settings_scroll)
 
         root_layout.addWidget(self.sidebar_widget)
@@ -376,7 +381,10 @@ class MainWindow(QMainWindow):
         """
         )
 
-        self.search_bar.setMaximumWidth(600)  # Ensure it doesn't push others off screen
+        self.search_bar.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.search_bar.customContextMenuRequested.connect(
+            lambda pos: self._create_text_context_menu(self.search_bar, pos)
+        )
 
         search_row.addWidget(self.search_bar, 4)
 
@@ -588,6 +596,77 @@ class MainWindow(QMainWindow):
         self.date_filter.setCurrentIndex(0)
         # We don't clear location checkboxes, they should default to checked
         self._on_filter_changed(None)
+
+    def _on_filter_changed(self, _):
+        self.filter_changed.emit()
+
+    def _create_text_context_menu(self, line_edit: QLineEdit, pos: QPoint):
+        from ui.i18n import TRANSLATIONS
+
+        lang = self.settings_panel.lang_combo.currentData() or "en"
+        t = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+
+        is_dark = self.is_dark
+        icon_blue = "#0078d4"
+        icon_red = "#c42b1c"
+        icon_gray = "#aaaaaa" if is_dark else "#666666"
+
+        menu = QMenu(self)
+
+        # Standard QLineEdit actions with modern Phosphor icons and translations
+        undo_act = menu.addAction(
+            qta.icon("ph.arrow-counter-clockwise", color=icon_blue), t["undo"]
+        )
+        undo_act.setEnabled(line_edit.isUndoAvailable())
+        undo_act.setShortcut("Ctrl+Z")
+        undo_act.triggered.connect(line_edit.undo)
+
+        redo_act = menu.addAction(
+            qta.icon("ph.arrow-clockwise", color=icon_blue), t["redo"]
+        )
+        redo_act.setEnabled(line_edit.isRedoAvailable())
+        redo_act.setShortcut("Ctrl+Y")
+        redo_act.triggered.connect(line_edit.redo)
+
+        menu.addSeparator()
+
+        cut_act = menu.addAction(qta.icon("ph.scissors", color=icon_gray), t["cut"])
+        cut_act.setEnabled(not line_edit.isReadOnly() and line_edit.hasSelectedText())
+        cut_act.setShortcut("Ctrl+X")
+        cut_act.triggered.connect(line_edit.cut)
+
+        copy_act = menu.addAction(qta.icon("ph.copy", color=icon_gray), t["copy"])
+        copy_act.setEnabled(line_edit.hasSelectedText())
+        copy_act.setShortcut("Ctrl+C")
+        copy_act.triggered.connect(line_edit.copy)
+
+        paste_act = menu.addAction(
+            qta.icon("ph.clipboard-text", color=icon_gray), t["paste"]
+        )
+        paste_act.setEnabled(
+            not line_edit.isReadOnly() and QApplication.clipboard().text() != ""
+        )
+        paste_act.setShortcut("Ctrl+V")
+        paste_act.triggered.connect(line_edit.paste)
+
+        delete_act = menu.addAction(qta.icon("ph.trash", color=icon_red), t["delete"])
+        delete_act.setEnabled(
+            not line_edit.isReadOnly() and line_edit.hasSelectedText()
+        )
+        delete_act.triggered.connect(
+            lambda: line_edit.insert("")
+        )  # standard delete behavior
+        delete_act.setShortcut("Del")
+
+        menu.addSeparator()
+
+        select_all_act = menu.addAction(
+            qta.icon("ph.cursor", color=icon_gray), t["select_all"]
+        )
+        select_all_act.setShortcut("Ctrl+A")
+        select_all_act.triggered.connect(line_edit.selectAll)
+
+        menu.exec(line_edit.mapToGlobal(pos))
 
     def update_search_locations(self, scan_dirs: list[str]):
         self.location_menu.clear()
@@ -966,30 +1045,12 @@ class MainWindow(QMainWindow):
 
             btn = QPushButton("Scan")
             btn.setFixedHeight(28)
-            btn.setStyleSheet(
-                """
-                QPushButton {
-                    background: #f0f0f0; border: 1px solid #cccccc; border-radius: 4px;
-                    padding: 0 16px; font-weight: 500; color: #1a1a1a;
-                }
-                QPushButton:hover { background: #e0e0e0; }
-            """
-            )
             btn.clicked.connect(lambda _, path=d: self._on_dir_btn_clicked(path))
 
             pause_btn = QPushButton("Pause")
             pause_btn.setObjectName("ScanCardPauseBtn")
             pause_btn.setFixedHeight(28)
             pause_btn.setVisible(False)
-            pause_btn.setStyleSheet(
-                """
-                QPushButton {
-                    background: #fff3cd; border: 1px solid #ffe69c; border-radius: 4px;
-                    padding: 0 16px; font-weight: 500; color: #664d03;
-                }
-                QPushButton:hover { background: #ffe69c; }
-            """
-            )
             pause_btn.clicked.connect(
                 lambda _, path=d: self._on_pause_btn_clicked(path)
             )
@@ -1004,6 +1065,9 @@ class MainWindow(QMainWindow):
                 "btn": btn,
                 "pause_btn": pause_btn,
             }
+
+        # Apply current theme to newly created widgets
+        self.set_theme(self.is_dark)
 
     def _on_dir_btn_clicked(self, path: str):
         btn = self.dir_ui_map[path]["btn"]
@@ -1151,6 +1215,7 @@ class MainWindow(QMainWindow):
 
         # Windows Dark Mode Title Bar Hack
         from ui.styles import apply_dark_title_bar
+
         bg = "#1e1e1e" if is_dark else "#ffffff"
         apply_dark_title_bar(self, is_dark, bg)
 
@@ -1246,7 +1311,7 @@ class MainWindow(QMainWindow):
                 background: {border};
                 margin: 4px 8px;
             }}
-            #IndividualScanTitle {{ color: {fg}; background: transparent; }}
+            #IndividualScanTitle {{ font-family: 'Segoe UI Variable Text', 'Inter', 'Segoe UI', sans-serif; color: {fg}; background: transparent; }}
             #ScanCardPath {{ font-size: 13px; color: {fg}; background: transparent; font-weight: 500; }}
             #ScanCardLast {{ font-size: 11px; color: {subtext}; background: transparent; }}
             #IndividualScanCard {{ background: {card}; border: none; border-radius: 6px; }}
@@ -1289,9 +1354,7 @@ class MainWindow(QMainWindow):
         """
         )
 
-        self.central_widget.setStyleSheet(
-            f"#MainWindowContent {{ background: {bg}; }}"
-        )
+        self.central_widget.setStyleSheet(f"#MainWindowContent {{ background: {bg}; }}")
 
         self.sidebar_widget.setStyleSheet(
             f"""
@@ -1314,13 +1377,13 @@ class MainWindow(QMainWindow):
         self.settings_scroll.setStyleSheet(f"background: {bg}; border: none;")
 
         self.explorer_title.setStyleSheet(
-            f"color: {fg}; background: transparent; border: none;"
+            f"font-family: 'Segoe UI Variable Text', 'Inter', 'Segoe UI', sans-serif; color: {fg}; background: transparent; border: none;"
         )
         self.explorer_subtitle.setStyleSheet(
             f"color: {subtext}; background: transparent; border: none;"
         )
         self.scan_title.setStyleSheet(
-            f"color: {fg}; background: transparent; border: none;"
+            f"font-family: 'Segoe UI Variable Text', 'Inter', 'Segoe UI', sans-serif; color: {fg}; background: transparent; border: none;"
         )
         self.scan_desc.setStyleSheet(
             f"color: {subtext}; background: transparent; border: none;"
@@ -1561,8 +1624,6 @@ class MainWindow(QMainWindow):
         # Propagate theme to sub-widgets
         self.table.set_theme(is_dark)
         self.settings_panel.set_theme(is_dark)
-
-
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

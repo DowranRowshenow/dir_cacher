@@ -850,14 +850,14 @@ class ExplorerTable(QWidget):
         if not item:
             # Background context menu
             new_menu = menu.addMenu(
-                qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New")
+                qta.icon("ph.plus-circle", color="#107c10"), self._t.get("new", "New")
             )
             new_folder_act = new_menu.addAction(
-                qta.icon("fa5s.folder", color="#f0a30a"),
+                qta.icon("ph.folder", color="#f0a30a"),
                 self._t.get("folder", "Folder"),
             )
             new_file_act = new_menu.addAction(
-                qta.icon("fa5s.file-alt", color="#0078d4"),
+                qta.icon("ph.file-text", color="#0078d4"),
                 self._t.get("text_document", "Text Document"),
             )
 
@@ -866,17 +866,17 @@ class ExplorerTable(QWidget):
             if clipboard.mimeData().hasUrls():
                 menu.addSeparator()
                 paste_act = menu.addAction(
-                    qta.icon("fa5s.paste", color="#aaaaaa"),
+                    qta.icon("ph.clipboard-text", color=icon_gray),
                     self._t.get("paste", "Paste"),
                 )
             menu.addSeparator()
             prop_act = menu.addAction(
-                qta.icon("fa5s.info-circle", color=icon_gray),
+                qta.icon("ph.info", color=icon_gray),
                 self._t.get("properties", "Properties"),
             )
             refresh_act = menu.addAction(
-                qta.icon("fa5s.sync", color="#107c10"),
-                self._t.get("refresh", "Refresh Folder"),
+                qta.icon("ph.arrows-clockwise", color=icon_gray),
+                self._t.get("refresh", "Refresh"),
             )
 
             action = menu.exec(self._table.viewport().mapToGlobal(pos))
@@ -903,61 +903,60 @@ class ExplorerTable(QWidget):
         path = data.get("path", "")
 
         open_act = menu.addAction(
-            qta.icon("fa5s.external-link-alt", color=primary_fg),
+            qta.icon("ph.arrow-square-out", color=primary_fg),
             self._t.get("open", "Open"),
         )
         reveal_act = menu.addAction(
-            qta.icon("fa5s.folder-open", color="#f0a30a"),
+            qta.icon("ph.folder-open", color="#f0a30a"),
             self._t.get("show_in_explorer", "Show in File Explorer"),
         )
         menu.addSeparator()
 
         new_menu = menu.addMenu(
-            qta.icon("fa5s.plus", color="#107c10"), self._t.get("new", "New")
+            qta.icon("ph.plus-circle", color="#107c10"), self._t.get("new", "New")
         )
         new_folder_act = new_menu.addAction(
-            qta.icon("fa5s.folder", color="#f0a30a"), self._t.get("folder", "Folder")
+            qta.icon("ph.folder", color="#f0a30a"), self._t.get("folder", "Folder")
         )
         new_file_act = new_menu.addAction(
-            qta.icon("fa5s.file-alt", color="#0078d4"),
-            self._t.get("text_document", "Text Document"),
+            qta.icon("ph.file-text", color="#0078d4"), self._t.get("text_document", "Text Document")
         )
 
         menu.addSeparator()
         copy_act = menu.addAction(
-            qta.icon("fa5s.copy", color=icon_gray),
+            qta.icon("ph.link", color=icon_gray),
             self._t.get("copy_path", "Copy Path"),
         )
         prop_act = menu.addAction(
-            qta.icon("fa5s.info-circle", color=icon_gray),
+            qta.icon("ph.info", color=icon_gray),
             self._t.get("properties", "Properties"),
         )
         menu.addSeparator()
         rename_act = menu.addAction(
-            qta.icon("fa5s.edit", color=icon_gray), self._t.get("rename", "Rename")
+            qta.icon("ph.pencil-line", color=icon_gray), self._t.get("rename", "Rename")
         )
         delete_act = menu.addAction(
-            qta.icon("fa5s.trash-alt", color="#d1242f"), self._t.get("delete", "Delete")
+            qta.icon("ph.trash", color="#d1242f"), self._t.get("delete", "Delete")
         )
         menu.addSeparator()
 
         # Clipboard actions
         c_copy_act = menu.addAction(
-            qta.icon("fa5s.clone", color=icon_gray), self._t.get("copy", "Copy")
+            qta.icon("ph.copy", color=icon_gray), self._t.get("copy", "Copy")
         )
         c_cut_act = menu.addAction(
-            qta.icon("fa5s.cut", color=icon_gray), self._t.get("cut", "Cut")
+            qta.icon("ph.scissors", color=icon_gray), self._t.get("cut", "Cut")
         )
         paste_act = None
         if QApplication.clipboard().mimeData().hasUrls():
             paste_act = menu.addAction(
-                qta.icon("fa5s.paste", color="#aaaaaa"), self._t.get("paste", "Paste")
+                qta.icon("ph.clipboard-text", color=icon_gray), self._t.get("paste", "Paste")
             )
 
         menu.addSeparator()
         refresh_act = menu.addAction(
-            qta.icon("fa5s.sync", color="#107c10"),
-            self._t.get("refresh", "Refresh (Rescan)"),
+            qta.icon("ph.arrows-clockwise", color=icon_gray),
+            self._t.get("refresh", "Refresh"),
         )
 
         action = menu.exec(self._table.viewport().mapToGlobal(pos))

@@ -6,8 +6,15 @@ from PySide6.QtCore import QFileInfo, QSize, QByteArray, QBuffer, QIODevice
 from PySide6.QtGui import QIcon, QPixmap
 
 class IconProvider:
-    def __init__(self, db_path="icons.db"):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        if db_path is None:
+            appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+            dir_path = os.path.join(appdata, "DirCache")
+            os.makedirs(dir_path, exist_ok=True)
+            self.db_path = os.path.join(dir_path, "Icons.db")
+        else:
+            self.db_path = db_path
+            
         self._provider = QFileIconProvider()
         self._memory_cache = {}
         self._init_db()

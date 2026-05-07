@@ -65,7 +65,10 @@ TRANSLATIONS = {
         "date_last_week": "Last week",
         "date_last_month": "Last month",
         "date_this_year": "This Year",
-        "date_custom": "Custom Range..."
+        "date_custom": "Custom Range...",
+        "undo": "Undo",
+        "redo": "Redo",
+        "select_all": "Select All"
     },
     "tr": {
         "explorer": "Gezgin",
@@ -132,7 +135,10 @@ TRANSLATIONS = {
         "date_last_week": "Geçen hafta",
         "date_last_month": "Geçen ay",
         "date_this_year": "Bu Yıl",
-        "date_custom": "Özel Aralık..."
+        "date_custom": "Özel Aralık...",
+        "undo": "Geri Al",
+        "redo": "Yinele",
+        "select_all": "Tümünü Seç"
     },
     "ru": {
         "explorer": "Проводник",
@@ -199,7 +205,10 @@ TRANSLATIONS = {
         "date_last_week": "Прошлая неделя",
         "date_last_month": "Прошлый месяц",
         "date_this_year": "В этом году",
-        "date_custom": "Пользовательский диапазон..."
+        "date_custom": "Пользовательский диапазон...",
+        "undo": "Отменить",
+        "redo": "Повторить",
+        "select_all": "Выделить всё"
     },
     "tk": {
         "explorer": "Gözden geçiriji",
@@ -266,6 +275,9 @@ TRANSLATIONS = {
         "date_last_week": "Geçen hepde",
         "date_last_month": "Geçen aý",
         "date_this_year": "Şu ýyl",
-        "date_custom": "Ýörite aralyk..."
+        "date_custom": "Ýörite aralyk...",
+        "undo": "Yza al",
+        "redo": "Gaýtala",
+        "select_all": "Ählisini saýla"
     }
 }

@@ -15,7 +15,15 @@ from scanner import Scanner
 from ui.i18n import TRANSLATIONS
 from ui.export_progress import ExportProgressDialog
 
-CONFIG_FILE = "config.json"
+
+def get_appdata_dir():
+    appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+    dir_path = os.path.join(appdata, "DirCache")
+    os.makedirs(dir_path, exist_ok=True)
+    return dir_path
+
+
+CONFIG_FILE = os.path.join(get_appdata_dir(), "config.json")
 
 
 def resource_path(relative_path):
@@ -31,8 +39,9 @@ from PySide6.QtCore import QThread, Signal, QTimer
 
 
 class SearchWorker(QThread):
-    finished = Signal(list, str, int) # results, query, offset
+    finished = Signal(list, str, int)  # results, query, offset
     progress = Signal(int, int)
+
     def __init__(
         self,
         dbs_to_search,
@@ -149,16 +158,16 @@ class PathLogApp:
         from PySide6.QtGui import QIcon, QShortcut, QKeySequence
         from PySide6.QtCore import Qt
 
-        # High DPI support for sharp fonts
-        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
-        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+        # High DPI support is enabled by default in Qt 6
 
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("DirCache")
         self.app.setOrganizationName("ZeroTeams")
 
         icon_file = (
-            "logo.ico" if os.path.exists(resource_path("logo.ico")) else "logo.png"
+            "assets/logo.ico"
+            if os.path.exists(resource_path("assets/logo.ico"))
+            else "assets/logo.png"
         )
         icon_path = resource_path(icon_file)
 
@@ -167,7 +176,7 @@ class PathLogApp:
 
         self.window = MainWindow()
         self.window.setWindowIcon(app_icon)
-        self.window.setWindowTitle("DirCache Explorer v1.2.0")
+        self.window.setWindowTitle("DirCache Explorer v1.0")
 
         # Shortcuts
         QShortcut(
@@ -271,7 +280,9 @@ class PathLogApp:
             return self.shared_db
         return self.local_db
 
-    def _get_children(self, path: str, limit: int = 1000, offset: int = 0) -> list[dict]:
+    def _get_children(
+        self, path: str, limit: int = 1000, offset: int = 0
+    ) -> list[dict]:
         db = self._get_db_for_path(path)
         if not db:
             return []
@@ -282,8 +293,12 @@ class PathLogApp:
 
         file_types, min_mtime, max_mtime = self._get_filter_params()
         return db.get_children(
-            path, file_types=file_types, min_mtime=min_mtime, max_mtime=max_mtime,
-            limit=limit, offset=offset
+            path,
+            file_types=file_types,
+            min_mtime=min_mtime,
+            max_mtime=max_mtime,
+            limit=limit,
+            offset=offset,
         )
 
     def _on_table_status(self, status: str, count: str):
@@ -379,7 +394,14 @@ class PathLogApp:
         msg.exec()
 
     def _export_data_logic(
-        self, target_dir, query, fmt, dest, delimiter=",", progress_cb=None, cancel_check=None
+        self,
+        target_dir,
+        query,
+        fmt,
+        dest,
+        delimiter=",",
+        progress_cb=None,
+        cancel_check=None,
     ):
         results = []
 
@@ -538,17 +560,11 @@ class PathLogApp:
             progress_cb(100, "Done!")
 
     def _get_local_db_path(self):
-        appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
-        dir_path = os.path.join(appdata, "DirCache")
-        os.makedirs(dir_path, exist_ok=True)
-        return os.path.join(dir_path, "local_cache.db")
+        return os.path.join(get_appdata_dir(), "local_cache.db")
 
     def _get_network_db_path(self):
         """Fallback path for network path indexes when no shared_db is configured."""
-        appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
-        dir_path = os.path.join(appdata, "DirCache")
-        os.makedirs(dir_path, exist_ok=True)
-        return os.path.join(dir_path, "network_cache.db")
+        return os.path.join(get_appdata_dir(), "network_cache.db")
 
     # ── Config ────────────────────────────────────────────
     def load_config(self):
@@ -761,12 +777,12 @@ class PathLogApp:
                     min_mtime=min_mtime,
                     max_mtime=max_mtime,
                 )
-                
+
                 # Only update UI if the scan found new/changed items compared to cache
                 current = getattr(self.window.table, "_current_items", [])
                 changed = True
                 if current and items:
-                    changed = (items != current[:len(items)])
+                    changed = items != current[: len(items)]
                 elif not current and not items:
                     changed = False
 
@@ -916,7 +932,7 @@ class PathLogApp:
                 file_types.append(name)
 
         idx = self.window.date_filter.currentIndex()
-        
+
         import time
         from datetime import datetime, timedelta
 
@@ -1165,7 +1181,6 @@ class PathLogApp:
         if db:
             db.delete_entry(path)
 
-
     def shutdown(self):
         """Safe shutdown of all background processes and database connections."""
         print("Shutting down DirCache...")
@@ -1189,6 +1204,7 @@ class PathLogApp:
             print("Closing shared database...")
             self.shared_db.close()
             self.shared_db = None
+
 
 if __name__ == "__main__":
     app = PathLogApp()

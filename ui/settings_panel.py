@@ -76,6 +76,7 @@ class SettingsPanel(QWidget):
     settings_changed = Signal()
     open_cache_folder_requested = Signal()
     clear_cache_requested = Signal()
+    text_context_menu_requested = Signal(object, object)  # (QLineEdit, QPoint)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -117,6 +118,10 @@ class SettingsPanel(QWidget):
         self.shared_cache_edit = QLineEdit()
         self.shared_cache_edit.setPlaceholderText("Shared SQLite cache (e.g. \\\\server\\share\\shared_cache.db)…")
         self.shared_cache_edit.setFixedHeight(30)
+        self.shared_cache_edit.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.shared_cache_edit.customContextMenuRequested.connect(
+            lambda pos: self.text_context_menu_requested.emit(self.shared_cache_edit, pos)
+        )
 
 
         s_browse_btn = QPushButton("Browse…")
@@ -307,6 +312,10 @@ class SettingsPanel(QWidget):
         self.delim_edit.setPlaceholderText("&")
         self.delim_edit.setFixedWidth(40)
         self.delim_edit.setAlignment(Qt.AlignCenter)
+        self.delim_edit.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.delim_edit.customContextMenuRequested.connect(
+            lambda pos: self.text_context_menu_requested.emit(self.delim_edit, pos)
+        )
         self.delim_edit.textChanged.connect(lambda: self.settings_changed.emit())
         
         delim_layout.addWidget(self._delim_label)
@@ -326,6 +335,10 @@ class SettingsPanel(QWidget):
         self.wildcard_edit.setPlaceholderText("*")
         self.wildcard_edit.setFixedWidth(40)
         self.wildcard_edit.setAlignment(Qt.AlignCenter)
+        self.wildcard_edit.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.wildcard_edit.customContextMenuRequested.connect(
+            lambda pos: self.text_context_menu_requested.emit(self.wildcard_edit, pos)
+        )
         self.wildcard_edit.textChanged.connect(lambda: self.settings_changed.emit())
         
         wild_layout.addWidget(self._wildcard_label)
