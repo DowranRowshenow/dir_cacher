@@ -106,13 +106,14 @@ class ExportWorker(QThread):
     error = Signal(str)
     progress = Signal(int, str)  # value, text
 
-    def __init__(self, logic_fn, target_dir, query, fmt, dest):
+    def __init__(self, logic_fn, target_dir, query, fmt, dest, delimiter=","):
         super().__init__()
         self.logic_fn = logic_fn
         self.target_dir = target_dir
         self.query = query
         self.fmt = fmt
         self.dest = dest
+        self.delimiter = delimiter
         self._is_canceled = False
 
     def stop(self):
@@ -132,6 +133,7 @@ class ExportWorker(QThread):
                 self.query,
                 self.fmt,
                 self.dest,
+                self.delimiter,
                 progress_cb,
                 cancel_check,
             )
@@ -320,6 +322,7 @@ class PathLogApp:
                 params["query"],
                 params["format"],
                 params["destination"],
+                params.get("delimiter", ","),
             )
 
             self.export_prog.canceled.connect(self.export_worker.stop)
@@ -375,7 +378,7 @@ class PathLogApp:
         msg.exec()
 
     def _export_data_logic(
-        self, target_dir, query, fmt, dest, progress_cb=None, cancel_check=None
+        self, target_dir, query, fmt, dest, delimiter=",", progress_cb=None, cancel_check=None
     ):
         results = []
 
@@ -458,7 +461,7 @@ class PathLogApp:
         import csv
         from datetime import datetime
 
-        if fmt == "csv":
+        if fmt in ["csv", "txt"]:
             with open(dest, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.DictWriter(
                     f,
@@ -470,6 +473,7 @@ class PathLogApp:
                         "Size (Bytes)",
                         "Modified Time",
                     ],
+                    delimiter=delimiter,
                 )
                 writer.writeheader()
                 total = len(results)
@@ -731,10 +735,10 @@ class PathLogApp:
             return
 
         if path in self.active_scanners:
-            self.window.set_scanning(True)
+            self.window.table.set_scanning(True)
             return  # Already scanning this path, don't queue another
 
-        self.window.set_scanning(True)
+        self.window.table.set_scanning(True)
 
         def _on_finish(count):
             import time
@@ -748,7 +752,7 @@ class PathLogApp:
             # If the user is still looking at this folder, update the table view directly
             # This avoids calling refresh_explorer() and causing an infinite scan loop.
             if self.window.table._current_path == path:
-                self.window.set_scanning(False)
+                self.window.table.set_scanning(False)
                 file_types, min_mtime, max_mtime = self._get_filter_params()
                 items = db.get_children(
                     path,
@@ -756,9 +760,18 @@ class PathLogApp:
                     min_mtime=min_mtime,
                     max_mtime=max_mtime,
                 )
+                
+                # Only update UI if the scan found new/changed items compared to cache
+                current = getattr(self.window.table, "_current_items", [])
+                changed = True
+                if current and items:
+                    changed = (items != current[:len(items)])
+                elif not current and not items:
+                    changed = False
+
                 # Ensure we apply the current search text filter if any
                 search_text = self.window.search_bar.text().strip()
-                if not search_text:
+                if changed and not search_text:
                     self.window.table._highlight_delegate.set_query("")
                     self.window.table._load_items(items)
                     n = len(items)
@@ -767,13 +780,13 @@ class PathLogApp:
                         f"{n:,} items",
                     )
             elif not self.active_scanners:
-                self.window.set_scanning(False)
+                self.window.table.set_scanning(False)
 
         def _on_error(msg):
             if path in self.active_scanners:
                 del self.active_scanners[path]
             if self.window.table._current_path == path:
-                self.window.set_scanning(False)
+                self.window.table.set_scanning(False)
 
         scanner = Scanner(db)
         self.active_scanners[path] = scanner
@@ -901,8 +914,8 @@ class PathLogApp:
             if cb.isChecked():
                 file_types.append(name)
 
-        date_text = self.window.date_filter.currentText()
-
+        idx = self.window.date_filter.currentIndex()
+        
         import time
         from datetime import datetime, timedelta
 
@@ -910,21 +923,17 @@ class PathLogApp:
         max_mtime = 0
         now = datetime.now()
 
-        if date_text == "Today":
+        if idx == 1:  # Today
             min_mtime = datetime(now.year, now.month, now.day).timestamp()
-        elif date_text == "Last 7 Days":
+        elif idx == 2:  # Last week
             min_mtime = (now - timedelta(days=7)).timestamp()
-        elif date_text == "Last 30 Days":
+        elif idx == 3:  # Last month
             min_mtime = (now - timedelta(days=30)).timestamp()
-        elif date_text == "This Year":
+        elif idx == 4:  # This Year
             min_mtime = datetime(now.year, 1, 1).timestamp()
-        # If the last item is selected, it's the custom range
-        last_idx = self.window.date_filter.count() - 1
-        if (
-            self.window.date_filter.currentIndex() == last_idx
-            and self.window.custom_date_range
-        ):
-            min_mtime, max_mtime = self.window.custom_date_range
+        elif idx == self.window.date_filter.count() - 1:  # Custom Range
+            if self.window.custom_date_range:
+                min_mtime, max_mtime = self.window.custom_date_range
 
         return file_types, min_mtime, max_mtime
 

@@ -205,7 +205,7 @@ class Database:
                         WHERE last_seen < ? 
                           AND parent_id IN (
                             SELECT id FROM directories 
-                            WHERE path = ? OR path GLOB ? OR path GLOB ?
+                            WHERE path = ? COLLATE NOCASE OR path GLOB ? OR path GLOB ?
                           )
                         """,
                         (scan_time, p, p + "/*", p + "\\*")
@@ -215,7 +215,7 @@ class Database:
                         """
                         DELETE FROM entries
                         WHERE last_seen < ?
-                          AND parent_id = (SELECT id FROM directories WHERE path = ?)
+                          AND parent_id = (SELECT id FROM directories WHERE path = ? COLLATE NOCASE)
                         """,
                         (scan_time, p)
                     )
@@ -228,7 +228,7 @@ class Database:
     def replace_children(self, parent_path: str, entries: List[Dict]):
         with self.conn:
             # 1. Get or create parent_id
-            cursor = self.conn.execute("SELECT id FROM directories WHERE path = ?", (parent_path,))
+            cursor = self.conn.execute("SELECT id FROM directories WHERE path = ? COLLATE NOCASE", (parent_path,))
             row = cursor.fetchone()
             if not row:
                 self.conn.execute("INSERT INTO directories (path) VALUES (?)", (parent_path,))
@@ -260,7 +260,7 @@ class Database:
         limit: int = 1000,
         offset: int = 0,
     ) -> List[Dict]:
-        cursor = self.conn.execute("SELECT id FROM directories WHERE path = ?", (parent_path,))
+        cursor = self.conn.execute("SELECT id FROM directories WHERE path = ? COLLATE NOCASE", (parent_path,))
         row = cursor.fetchone()
         if not row:
             return []

@@ -347,9 +347,6 @@ def apply_dark_title_bar(window, is_dark: bool):
     """
     Forces the Windows title bar to match the dark/light theme.
     """
-    if window.windowHandle() is None:
-        # Window not yet shown or created
-        return
 
     import sys
     if sys.platform != "win32":

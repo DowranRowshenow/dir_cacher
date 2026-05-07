@@ -568,8 +568,8 @@ class MainWindow(QMainWindow):
             [
                 "Any Time",
                 "Today",
-                "Last 7 Days",
-                "Last 30 Days",
+                "Last week",
+                "Last month",
                 "This Year",
                 "Custom Range...",
             ]
@@ -1148,9 +1148,19 @@ class MainWindow(QMainWindow):
 
     def update_translations(self, t: dict):
         # Update NavButtons
-        self.nav_explorer.setText(t["explorer"])
-        self.nav_scan.setText(t["scan_now"])
-        self.nav_settings.setText(t["settings"])
+        self.nav_explorer.setText(t.get("explorer", "Explorer"))
+        self.nav_scan.setText(t.get("scan_now", "Scan Now"))
+        self.nav_settings.setText(t.get("settings", "Settings"))
+
+        # Date Filters
+        self.date_filter.blockSignals(True)
+        self.date_filter.setItemText(0, t.get("date_any", "Any Time"))
+        self.date_filter.setItemText(1, t.get("date_today", "Today"))
+        self.date_filter.setItemText(2, t.get("date_last_week", "Last week"))
+        self.date_filter.setItemText(3, t.get("date_last_month", "Last month"))
+        self.date_filter.setItemText(4, t.get("date_this_year", "This Year"))
+        self.date_filter.setItemText(5, t.get("date_custom", "Custom Range..."))
+        self.date_filter.blockSignals(False)
 
         # Window Title
         self.setWindowTitle(f"DIRCACHE - {t['explorer']}")

@@ -59,7 +59,13 @@ TRANSLATIONS = {
         "confirm_delete_msg": "Are you sure you want to delete '{name}'?",
         "error": "Error",
         "paste_error": "Paste Error",
-        "wildcard_char": "Wildcard Char"
+        "wildcard_char": "Wildcard Char",
+        "date_any": "Any Time",
+        "date_today": "Today",
+        "date_last_week": "Last week",
+        "date_last_month": "Last month",
+        "date_this_year": "This Year",
+        "date_custom": "Custom Range..."
     },
     "tr": {
         "explorer": "Gezgin",
@@ -120,7 +126,13 @@ TRANSLATIONS = {
         "confirm_delete_msg": "'{name}' öğesini silmek istediğinizden emin misiniz?",
         "error": "Hata",
         "paste_error": "Yapıştırma Hatası",
-        "wildcard_char": "Joker Karakter"
+        "wildcard_char": "Joker Karakter",
+        "date_any": "Herhangi Bir Zaman",
+        "date_today": "Bugün",
+        "date_last_week": "Geçen hafta",
+        "date_last_month": "Geçen ay",
+        "date_this_year": "Bu Yıl",
+        "date_custom": "Özel Aralık..."
     },
     "ru": {
         "explorer": "Проводник",
@@ -181,7 +193,13 @@ TRANSLATIONS = {
         "confirm_delete_msg": "Вы уверены, что хотите удалить '{name}'?",
         "error": "Ошибка",
         "paste_error": "Ошибка вставки",
-        "wildcard_char": "Символ подстановки"
+        "wildcard_char": "Символ подстановки",
+        "date_any": "В любое время",
+        "date_today": "Сегодня",
+        "date_last_week": "Прошлая неделя",
+        "date_last_month": "Прошлый месяц",
+        "date_this_year": "В этом году",
+        "date_custom": "Пользовательский диапазон..."
     },
     "tk": {
         "explorer": "Gözden geçiriji",
@@ -242,6 +260,12 @@ TRANSLATIONS = {
         "confirm_delete_msg": "'{name}' elementini pozmak isleýändigiňize ynamlyňyzmy?",
         "error": "Ýalňyşlyk",
         "paste_error": "Ýelme ýalňyşlygy",
-        "wildcard_char": "Ýabany nyşan"
+        "wildcard_char": "Ýabany nyşan",
+        "date_any": "Islendik wagt",
+        "date_today": "Şu gün",
+        "date_last_week": "Geçen hepde",
+        "date_last_month": "Geçen aý",
+        "date_this_year": "Şu ýyl",
+        "date_custom": "Ýörite aralyk..."
     }
 }

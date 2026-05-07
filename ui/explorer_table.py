@@ -270,7 +270,7 @@ class ExplorerTable(QWidget):
     status_updated = Signal(str, str)
     home_requested = Signal()
     scan_requested = Signal(str)
-    load_more_requested = Signal(str, int, int) # query, offset, limit
+    load_more_requested = Signal(str, int, int)  # query, offset, limit
 
     _get_children_fn = None
     _rename_entry_fn = None
@@ -428,7 +428,6 @@ class ExplorerTable(QWidget):
 
         self._back_btn.setIcon(qta.icon("fa5s.arrow-left", color=fg))
 
-        # Update spinner icon with theme-aware color
         self._spinner_icon = qta.icon(
             "fa5s.spinner", color="#0078d4", animation=qta.Spin(self._spinner)
         )
@@ -565,7 +564,7 @@ class ExplorerTable(QWidget):
     def _on_scroll(self, value):
         if not self._has_more or self._is_loading:
             return
-        
+
         # If we are within 200 pixels of the bottom, load more
         bar = self._table.verticalScrollBar()
         if value > bar.maximum() - 200:
@@ -574,23 +573,27 @@ class ExplorerTable(QWidget):
     def _load_more(self):
         if self._is_loading or not self._has_more:
             return
-        
+
         self._is_loading = True
         self._offset += self._limit
-        
+
         if self._is_search_mode:
             # Emit signal to main.py to fetch more search results
-            self.load_more_requested.emit(self._current_search_query, self._offset, self._limit)
+            self.load_more_requested.emit(
+                self._current_search_query, self._offset, self._limit
+            )
         else:
             # Fetch more children for current folder
-            items = self._get_children_fn(self._current_path, limit=self._limit, offset=self._offset)
+            items = self._get_children_fn(
+                self._current_path, limit=self._limit, offset=self._offset
+            )
             if items:
                 self._append_items(items)
                 if len(items) < self._limit:
                     self._has_more = False
             else:
                 self._has_more = False
-        
+
         self._is_loading = False
 
     def show_virtual_roots(self, roots: list[dict], label: str = "Indexed Locations"):
@@ -612,17 +615,18 @@ class ExplorerTable(QWidget):
         self._current_search_query = query
         self._offset = offset
         self._has_more = len(items) >= self._limit
-        
+
         self._highlight_delegate.set_query(query)
         if offset == 0:
             self._load_items(items)
         else:
             self._append_items(items)
-            
+
         n = self._table.rowCount()
         self._breadcrumb.set_path("", f'Search: "{query}"')
         self.status_updated.emit(
-            f"Showing {n:,} result{'s' if n != 1 else ''} for \"{query}\".", f"{n:,} results"
+            f"Showing {n:,} result{'s' if n != 1 else ''} for \"{query}\".",
+            f"{n:,} results",
         )
 
     # ── Navigation ─────────────────────────────────────────
@@ -654,6 +658,7 @@ class ExplorerTable(QWidget):
 
     # ── Rendering ──────────────────────────────────────────
     def _load_items(self, items: list[dict]):
+        self._current_items = items  # Store for background diffing
         tbl = self._table
         tbl.setUpdatesEnabled(False)
         tbl.blockSignals(True)
@@ -664,11 +669,18 @@ class ExplorerTable(QWidget):
         self._append_items(items)
 
     def _append_items(self, items: list[dict]):
+        if not hasattr(self, "_current_items") or self._offset == 0:
+            self._current_items = items
+        elif (
+            items not in self._current_items
+        ):  # Simple safety check, though usually they are extended
+            self._current_items.extend(items)
+
         tbl = self._table
         tbl.setUpdatesEnabled(False)
         tbl.blockSignals(True)
         tbl.setSortingEnabled(False)
-        
+
         # Folder first sorting for the BATCH (optional, but consistent)
         def sort_key(x):
             return (0 if x.get("is_dir") else 1, x.get("name", "").lower())
@@ -761,7 +773,6 @@ class ExplorerTable(QWidget):
 
     # ── Context menu ───────────────────────────────────────
 
-
     def _header_context_menu(self, pos):
         menu = QMenu(self)
         fg = "#ffffff" if self._highlight_delegate.is_dark else "#1a1a1a"
@@ -797,12 +808,12 @@ class ExplorerTable(QWidget):
 
     def _context_menu(self, pos):
         item = self._table.itemAt(pos)
-        
+
         # Determine theme-aware colors
         is_dark = self.palette().window().color().lightness() < 128
         primary_fg = "#ffffff" if is_dark else "#1a1a1a"
         icon_gray = "#aaaaaa" if is_dark else "#888888"
-        
+
         menu = QMenu(self)
         menu.setStyleSheet(
             """
@@ -871,8 +882,6 @@ class ExplorerTable(QWidget):
             return
         data = name_item.data(Qt.UserRole) or {}
         path = data.get("path", "")
-
-
 
         open_act = menu.addAction(
             qta.icon("fa5s.external-link-alt", color=primary_fg),
@@ -1121,16 +1130,16 @@ class ExplorerTable(QWidget):
         dlg.setWindowTitle(title)
         dlg.setMinimumWidth(340)
         dlg.setStyleSheet(self._dialog_stylesheet())
-        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        dlg.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
         apply_dark_title_bar(dlg, self._is_dark)
 
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        header_lbl = QLabel(title)
-        header_lbl.setObjectName("dlg_header")
-        layout.addWidget(header_lbl)
+        # header_lbl = QLabel(title)
+        # header_lbl.setObjectName("dlg_header")
+        # layout.addWidget(header_lbl)
 
         inner = QVBoxLayout()
         inner.setContentsMargins(14, 10, 14, 10)
@@ -1192,16 +1201,16 @@ class ExplorerTable(QWidget):
         dlg.setWindowTitle(title)
         dlg.setMinimumWidth(340)
         dlg.setStyleSheet(self._dialog_stylesheet())
-        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        dlg.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
         apply_dark_title_bar(dlg, self._is_dark)
 
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        header_lbl = QLabel(title)
-        header_lbl.setObjectName("dlg_header")
-        layout.addWidget(header_lbl)
+        # header_lbl = QLabel(title)
+        # header_lbl.setObjectName("dlg_header")
+        # layout.addWidget(header_lbl)
 
         inner = QVBoxLayout()
         inner.setContentsMargins(14, 12, 14, 8)
@@ -1247,16 +1256,16 @@ class ExplorerTable(QWidget):
         dlg.setWindowTitle(title)
         dlg.setMinimumWidth(340)
         dlg.setStyleSheet(self._dialog_stylesheet())
-        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        dlg.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
         apply_dark_title_bar(dlg, self._is_dark)
 
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        header_lbl = QLabel(title)
-        header_lbl.setObjectName("dlg_header")
-        layout.addWidget(header_lbl)
+        # header_lbl = QLabel(title)
+        # header_lbl.setObjectName("dlg_header")
+        # layout.addWidget(header_lbl)
 
         inner = QVBoxLayout()
         inner.setContentsMargins(14, 12, 14, 8)

@@ -12,7 +12,7 @@ class ExportProgressDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(t.get("export_wizard", "Export Progress"))
         self.setFixedSize(400, 150)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
 
         if is_dark:
             from ui.styles import apply_dark_title_bar
