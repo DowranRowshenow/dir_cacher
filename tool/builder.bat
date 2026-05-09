@@ -17,7 +17,7 @@ if exist dist rd /s /q dist
 echo [2/5] Building Standalone Bundle (PyInstaller)...
 "%PYTHON_VENV_EXE%" -m PyInstaller --noconfirm --onedir --windowed --onefile^
     --add-data "ui;ui" ^
-    --add-data "assets/logo.png;." ^
+    --add-data "assets;assets" ^
     --icon "assets/logo.png" ^
     --name "%PROJECT_NAME%" ^
     main.py

@@ -31,6 +31,9 @@ from PySide6.QtGui import (
     QCursor,
     QTextDocument,
     QAbstractTextDocumentLayout,
+    QGuiApplication,
+    QShortcut,
+    QKeySequence,
 )
 import qtawesome as qta
 from ui.icon_provider import IconProvider
@@ -44,6 +47,22 @@ def _icon(name: str, color: str, sz: int = 16):
     if key not in _ICON_CACHE:
         _ICON_CACHE[key] = qta.icon(name, color=color).pixmap(QSize(sz, sz))
     return _ICON_CACHE[key]
+
+
+def _font_for_document(option_font):
+    """Style option fonts often have pointSize=-1 when size comes from stylesheets."""
+    font = QFont(option_font)
+    if font.pointSize() > 0 or font.pointSizeF() > 0:
+        return font
+    px = font.pixelSize()
+    if px > 0:
+        screen = QGuiApplication.primaryScreen()
+        dpi = screen.logicalDotsPerInch() if screen else 96.0
+        font.setPointSizeF(max(1.0, px * 72.0 / dpi))
+    else:
+        app_f = QApplication.font()
+        font.setPointSize(max(1, app_f.pointSize()))
+    return font
 
 
 # ── Search Highlight Delegate ─────────────────────────────
@@ -90,7 +109,7 @@ class HighlightDelegate(QStyledItemDelegate):
         html_str = f"<div style='white-space:nowrap;'>{start}<span style='background-color: {highlight_bg}; color: {highlight_fg};'>{match}</span>{end}</div>"
 
         doc = QTextDocument()
-        doc.setDefaultFont(opt.font)
+        doc.setDefaultFont(_font_for_document(opt.font))
         doc.setHtml(html_str)
 
         # Find text bounding rect
@@ -271,6 +290,7 @@ class BreadcrumbBar(QWidget):
 class ExplorerTable(QWidget):
     folder_opened = Signal(str)
     status_updated = Signal(str, str)
+    clipboard_notice = Signal(str)
     home_requested = Signal()
     scan_requested = Signal(str)
     load_more_requested = Signal(str, int, int)  # query, offset, limit
@@ -401,6 +421,14 @@ class ExplorerTable(QWidget):
 
         # Connect scrollbar for infinite scrolling
         self._table.verticalScrollBar().valueChanged.connect(self._on_scroll)
+
+        sc_copy = QShortcut(QKeySequence.Copy, self)
+        sc_copy.setContext(Qt.WidgetWithChildrenShortcut)
+        sc_copy.activated.connect(lambda: self._clipboard_copy_selected_rows(False))
+
+        sc_cut = QShortcut(QKeySequence.Cut, self)
+        sc_cut.setContext(Qt.WidgetWithChildrenShortcut)
+        sc_cut.activated.connect(lambda: self._clipboard_copy_selected_rows(True))
 
     def update_translations(self, t: dict):
         self._t = t
@@ -1398,6 +1426,46 @@ class ExplorerTable(QWidget):
                     self._t.get("error", "Error"), f"Could not delete: {str(e)}"
                 )
 
+    def _clipboard_notice_message(self, paths: list[str], cut: bool) -> str:
+        if not paths:
+            return ""
+        n = len(paths)
+        single = paths[0]
+        name = os.path.basename(single.rstrip("\\/"))
+        if cut:
+            if n == 1:
+                return self._t.get(
+                    "clipboard_cut_one",
+                    "Cut to clipboard: {name}",
+                ).format(name=name)
+            return self._t.get(
+                "clipboard_cut_many",
+                "Cut {count} items to clipboard",
+            ).format(count=n)
+        if n == 1:
+            return self._t.get(
+                "clipboard_copied_one",
+                "Copied to clipboard: {name}",
+            ).format(name=name)
+        return self._t.get(
+            "clipboard_copied_many",
+            "Copied {count} items to clipboard",
+        ).format(count=n)
+
+    def _clipboard_copy_selected_rows(self, cut: bool):
+        rows: set[int] = set()
+        for it in self._table.selectedItems():
+            rows.add(it.row())
+        paths: list[str] = []
+        for r in sorted(rows):
+            name_item = self._table.item(r, 0)
+            if name_item:
+                data = name_item.data(Qt.UserRole)
+                if data and data.get("path"):
+                    paths.append(data["path"])
+        if paths:
+            self._on_clipboard_copy(paths, cut=cut)
+
     def _on_clipboard_copy(self, paths: list[str], cut: bool = False):
         from PySide6.QtCore import QUrl, QMimeData
 
@@ -1407,6 +1475,7 @@ class ExplorerTable(QWidget):
         # We can store 'cut' state in mime data too if we want native explorer behavior,
         # but for now we just handle standard copy.
         QApplication.clipboard().setMimeData(mime)
+        self.clipboard_notice.emit(self._clipboard_notice_message(paths, cut))
 
     def _on_paste(self):
         if not self._current_path:

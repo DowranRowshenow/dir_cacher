@@ -1,5 +1,9 @@
 # DIR CACHER
 
+    0. Concurrent Shared Database Updater and Fetcher
+    0. Improve Database Schema
+    0. Fast Cached View in Explorer
+    1. Searching again while searching crashes app
     2. All Window Dialogues Headers Bg Color
     4. Full Translations
     6. Show Cut or Copied files in some notifications bar or whatever
@@ -8,4 +12,5 @@
     8. Tooltips theme modes fix
     9. Custom filter type for dropdown like custom date range
     10. Context Menu Order like Win
-    11. Multiple Selection Actions Copy, Cut, Delete, Copy Path, Copy Name and Show Selected Item Count
+    11. Multiple Selection Actions Cut, Delete, Copy Path, Copy Name and Show Selected Items Count
+    12. Cut, Copy, Delete Progress bar, Overwrite Actions

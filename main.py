@@ -115,10 +115,10 @@ class ExportWorker(QThread):
     error = Signal(str)
     progress = Signal(int, str)  # value, text
 
-    def __init__(self, logic_fn, target_dir, query, fmt, dest, delimiter=","):
+    def __init__(self, logic_fn, directories, query, fmt, dest, delimiter=","):
         super().__init__()
         self.logic_fn = logic_fn
-        self.target_dir = target_dir
+        self.directories = directories
         self.query = query
         self.fmt = fmt
         self.dest = dest
@@ -138,7 +138,7 @@ class ExportWorker(QThread):
                 return self._is_canceled
 
             self.logic_fn(
-                self.target_dir,
+                self.directories,
                 self.query,
                 self.fmt,
                 self.dest,
@@ -206,6 +206,7 @@ class PathLogApp:
             delete_entry_fn=self._on_db_delete,
         )
         self.window.table.status_updated.connect(self._on_table_status)
+        self.window.table.clipboard_notice.connect(self.window.show_clipboard_notice)
         self.window.table.home_requested.connect(
             lambda: self.refresh_explorer(force_home=True)
         )
@@ -334,7 +335,7 @@ class PathLogApp:
 
             self.export_worker = ExportWorker(
                 self._export_data_logic,
-                params["directory"],
+                params["directories"],
                 params["query"],
                 params["format"],
                 params["destination"],
@@ -395,7 +396,7 @@ class PathLogApp:
 
     def _export_data_logic(
         self,
-        target_dir,
+        directories,
         query,
         fmt,
         dest,
@@ -404,6 +405,7 @@ class PathLogApp:
         cancel_check=None,
     ):
         results = []
+        seen_paths = set()
 
         if progress_cb:
             progress_cb(5, "Querying database...")
@@ -440,6 +442,8 @@ class PathLogApp:
             rows = cursor.fetchall()
 
             total = len(rows)
+            if total <= 0:
+                total = 1
             for i, row in enumerate(rows):
                 if cancel_check and cancel_check():
                     break
@@ -455,6 +459,11 @@ class PathLogApp:
                     parent + sep + name if not parent.endswith(sep) else parent + name
                 )
 
+                if path:
+                    if path in seen_paths:
+                        continue
+                    seen_paths.add(path)
+
                 # We skip os.stat during export to keep it fast, or only do it if requested.
                 # User said "Exporting takes long time than normal", likely due to os.stat on network shares.
                 # We'll use 0 or skip it for now.
@@ -469,8 +478,10 @@ class PathLogApp:
                     }
                 )
 
-        if target_dir:
-            _fetch_from_db(self._get_db_for_path(target_dir), target_dir)
+        dirs = [d for d in (directories or []) if d]
+        if dirs:
+            for path in dirs:
+                _fetch_from_db(self._get_db_for_path(path), path)
         else:
             _fetch_from_db(self.local_db, None)
             _fetch_from_db(self.shared_db, None)
@@ -1049,17 +1060,25 @@ class PathLogApp:
         dbs_to_search = []
         prefixes = []
 
-        checked_locations = [
-            loc for loc, cb in self.window.location_checkboxes.items() if cb.isChecked()
+        configured = [
+            d
+            for d in self.window.settings_panel.get_settings().get("scan_dirs", [])
+            if d
         ]
-        if checked_locations:
-            scope = checked_locations
+
+        glob = getattr(self.window, "location_global_cb", None)
+        if glob is not None and glob.isChecked():
+            scope = configured
         else:
-            scope = [
-                d
-                for d in self.window.settings_panel.get_settings().get("scan_dirs", [])
-                if d
+            checked_locations = [
+                loc
+                for loc, cb in self.window.location_checkboxes.items()
+                if cb.isChecked()
             ]
+            if checked_locations:
+                scope = checked_locations
+            else:
+                scope = configured
 
         for loc in scope:
             db = self._get_db_for_path(loc)

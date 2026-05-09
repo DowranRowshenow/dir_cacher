@@ -1,4 +1,5 @@
 import datetime
+from pathlib import Path
 from PySide6.QtCore import (
     Qt,
     QSize,
@@ -168,7 +169,7 @@ class MainWindow(QMainWindow):
         self.resize(1080, 720)
         self.setMinimumSize(1000, 700)
         self.setStyleSheet(STYLESHEET)
-        self._generate_checkbox_icons()
+        self._resolve_checkbox_asset_urls()
         self.custom_date_range = None  # (start_ts, end_ts)
 
         self.central_widget = QWidget()
@@ -305,20 +306,31 @@ class MainWindow(QMainWindow):
         for i, btn in enumerate(self._nav_btns):
             btn.set_active(i == index)
 
-    def _generate_checkbox_icons(self):
-        """Generate checkmark images for the stylesheet since we can't use qta directly in CSS."""
-        try:
-            # Generate a blue checkmark
-            icon = qta.icon("fa5s.check", color="#0078d4")
-            pix = icon.pixmap(QSize(12, 12))
-            pix.save("assets/check_blue.png")
+    def _resolve_checkbox_asset_urls(self):
+        """Checked-state checkmark: assets/check_white.png for all themes."""
+        assets = Path(__file__).resolve().parents[1] / "assets"
+        blue = (assets / "check_white.png").as_posix()
+        u = f"url({blue})"
+        self._cb_check_url_light = u
+        self._cb_check_url_dark = u
 
-            # Generate a white checkmark
-            icon_w = qta.icon("fa5s.check", color="#ffffff")
-            pix_w = icon_w.pixmap(QSize(12, 12))
-            pix_w.save("assets/check_white.png")
-        except Exception:
-            pass
+    def _checkbox_style_sheet(
+        self, label_color: str, indicator_border: str, check_image: str
+    ) -> str:
+        return f"""
+            QCheckBox {{ font-size: 11px; color: {label_color}; background: transparent; padding: 0 4px; }}
+            QCheckBox::indicator {{
+                width: 14px; height: 14px;
+                border: 1px solid {indicator_border};
+                border-radius: 3px;
+                background: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                border: 1px solid #0078d4;
+                image: {check_image};
+            }}
+            QCheckBox::indicator:hover {{ border-color: #0078d4; }}
+        """
 
     # ── Page: Explorer ────────────────────────────────────
     def _build_explorer_page(self) -> QWidget:
@@ -388,33 +400,20 @@ class MainWindow(QMainWindow):
 
         search_row.addWidget(self.search_bar, 4)
 
-        self.search_shared_cb = QCheckBox("Shared")
         self.location_btn = QPushButton("All Locations")
         self.location_btn.setFixedWidth(130)
         self.location_btn.setCursor(Qt.PointingHandCursor)
         self.location_menu = QMenu(self)
         self.location_btn.setMenu(self.location_menu)
         self.location_checkboxes = {}
+        self.location_global_cb = None
         search_row.addWidget(self.location_btn)
 
         self.case_sensitive_cb = QCheckBox("Aa")
         self.case_sensitive_cb.setFixedWidth(46)
         self.case_sensitive_cb.setToolTip("Match Case")
         self.case_sensitive_cb.setStyleSheet(
-            """
-            QCheckBox { font-size: 11px; color: #6e6e6e; background: transparent; padding: 0 4px; }
-            QCheckBox::indicator {
-                width: 14px; height: 14px;
-                border: 1px solid #c8c8c8;
-                border-radius: 3px;
-                background: transparent;
-            }
-            QCheckBox::indicator:checked {
-                border: 1px solid #0078d4;
-                image: url(assets/check_blue.png);
-            }
-            QCheckBox::indicator:hover { border-color: #0078d4; }
-        """
+            self._checkbox_style_sheet("#6e6e6e", "#c8c8c8", self._cb_check_url_light)
         )
         self.case_sensitive_cb.stateChanged.connect(
             lambda _: self._on_filter_changed(None)
@@ -539,6 +538,21 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.table, 1)
 
         layout.addSpacing(6)
+
+        self.clipboard_notice_bar = QLabel()
+        self.clipboard_notice_bar.setWordWrap(True)
+        self.clipboard_notice_bar.setVisible(False)
+        self.clipboard_notice_bar.setTextFormat(Qt.PlainText)
+        self.clipboard_notice_bar.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Maximum
+        )
+        layout.addWidget(self.clipboard_notice_bar)
+
+        self._clipboard_notice_timer = QTimer(self)
+        self._clipboard_notice_timer.setSingleShot(True)
+        self._clipboard_notice_timer.timeout.connect(
+            lambda: self.clipboard_notice_bar.setVisible(False)
+        )
 
         # Status row
         status_row = QHBoxLayout()
@@ -668,9 +682,33 @@ class MainWindow(QMainWindow):
 
         menu.exec(line_edit.mapToGlobal(pos))
 
+    def _shared_search_menu_label(self) -> str:
+        from ui.i18n import TRANSLATIONS
+
+        lang = self.settings_panel.lang_combo.currentData() or "en"
+        t = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+        return t.get("shared_search", "Global")
+
     def update_search_locations(self, scan_dirs: list[str]):
+        prev_global_checked = False
+        if self.location_global_cb is not None:
+            prev_global_checked = self.location_global_cb.isChecked()
         self.location_menu.clear()
         self.location_checkboxes.clear()
+
+        g_action = QWidgetAction(self.location_menu)
+        self.location_global_cb = QCheckBox(self._shared_search_menu_label())
+        self.location_global_cb.setChecked(prev_global_checked)
+        self.location_global_cb.setToolTip(self.location_global_cb.text())
+        self.location_global_cb.stateChanged.connect(
+            lambda _: self._on_filter_changed(None)
+        )
+        self.location_global_cb.stateChanged.connect(self._update_location_btn_text)
+        g_action.setDefaultWidget(self.location_global_cb)
+        self.location_menu.addAction(g_action)
+
+        self.location_menu.addSeparator()
+
         for d in scan_dirs:
             action = QWidgetAction(self.location_menu)
             import os
@@ -687,6 +725,9 @@ class MainWindow(QMainWindow):
         self._update_location_btn_text()
 
     def _update_location_btn_text(self, _=None):
+        if self.location_global_cb is not None and self.location_global_cb.isChecked():
+            self.location_btn.setText(self.location_global_cb.text())
+            return
         checked = [
             name for name, cb in self.location_checkboxes.items() if cb.isChecked()
         ]
@@ -1170,6 +1211,43 @@ class MainWindow(QMainWindow):
         if text:
             self.set_status(text)
 
+    def show_clipboard_notice(self, message: str):
+        self.clipboard_notice_bar.setText(message)
+        self.clipboard_notice_bar.setVisible(True)
+        self._apply_clipboard_notice_style()
+        self._clipboard_notice_timer.start(4800)
+
+    def _apply_clipboard_notice_style(self):
+        bar = getattr(self, "clipboard_notice_bar", None)
+        if bar is None:
+            return
+        if self.is_dark:
+            bar.setStyleSheet(
+                """
+                QLabel {
+                    background-color: #283d5c;
+                    color: #e3eefc;
+                    border: 1px solid #3a6fb0;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    font-size: 12px;
+                }
+                """
+            )
+        else:
+            bar.setStyleSheet(
+                """
+                QLabel {
+                    background-color: #e8f4fc;
+                    color: #0c4f89;
+                    border: 1px solid #bee0fa;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    font-size: 12px;
+                }
+                """
+            )
+
     def update_translations(self, t: dict):
         # Update NavButtons
         self.nav_explorer.setText(t.get("explorer", "Explorer"))
@@ -1191,7 +1269,10 @@ class MainWindow(QMainWindow):
 
         # Explorer Page
         self.search_bar.setPlaceholderText(t["search_placeholder"])
-        self.search_shared_cb.setText(t["shared_search"])
+        if self.location_global_cb is not None:
+            self.location_global_cb.setText(t["shared_search"])
+            self.location_global_cb.setToolTip(t["shared_search"])
+            self._update_location_btn_text()
         self.settings_panel.clear_cache_btn.setText(t["clear_cache"])
         self.explorer_title.setText(t["explorer"])
         self.explorer_subtitle.setText(
@@ -1389,23 +1470,9 @@ class MainWindow(QMainWindow):
             f"color: {subtext}; background: transparent; border: none;"
         )
 
-        _cb_check_img = "assets/check_white.png" if is_dark else "assets/check_blue.png"
+        _cb_check = self._cb_check_url_dark if is_dark else self._cb_check_url_light
         _cb_border = "#ffffff" if is_dark else "#c8c8c8"
-        _cb_style = f"""
-            QCheckBox {{ font-size: 11px; color: {subtext}; background: transparent; padding: 0 4px; }}
-            QCheckBox::indicator {{
-                width: 14px; height: 14px;
-                border: 1px solid {_cb_border};
-                border-radius: 3px;
-                background: transparent;
-            }}
-            QCheckBox::indicator:checked {{
-                border: 1px solid #0078d4;
-                image: url({_cb_check_img});
-            }}
-            QCheckBox::indicator:hover {{ border-color: #0078d4; }}
-        """
-        self.search_shared_cb.setStyleSheet(_cb_style)
+        _cb_style = self._checkbox_style_sheet(subtext, _cb_border, _cb_check)
         self.case_sensitive_cb.setStyleSheet(_cb_style)
 
         # Scan page specific themes
@@ -1502,10 +1569,12 @@ class MainWindow(QMainWindow):
             }}
             QCheckBox::indicator:checked {{
                 border: 1px solid #0078d4;
-                image: url({_cb_check_img});
+                image: {_cb_check};
             }}
             QCheckBox::indicator:hover {{ border-color: #0078d4; }}
         """
+        if self.location_global_cb is not None:
+            self.location_global_cb.setStyleSheet(_menu_cb_style)
         for cb in self.location_checkboxes.values():
             cb.setStyleSheet(_menu_cb_style)
         for cb in self.type_checkboxes.values():
@@ -1620,6 +1689,8 @@ class MainWindow(QMainWindow):
         for btn in self._nav_btns:
             btn.is_dark = is_dark
             btn._apply(btn._active)
+
+        self._apply_clipboard_notice_style()
 
         # Propagate theme to sub-widgets
         self.table.set_theme(is_dark)

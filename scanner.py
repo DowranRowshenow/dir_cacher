@@ -230,6 +230,9 @@ class Scanner(QObject):
         self.db = db
         self._thread = None
         self._worker = None
+        self._progress_callback = None
+        self._finished_callback = None
+        self._error_callback = None
 
     def start_scan(
         self,
@@ -241,6 +244,10 @@ class Scanner(QObject):
     ):
         if self._thread and self._thread.isRunning():
             return
+
+        self._progress_callback = progress_callback
+        self._finished_callback = finished_callback
+        self._error_callback = error_callback
 
         self._thread = QThread()
         self._worker = ScanWorker(self.db.db_path, root_paths, recursive=recursive)
@@ -267,21 +274,45 @@ class Scanner(QObject):
         self._cleanup()
 
     def _cleanup(self):
+        if self._thread and self._worker:
+            try:
+                self._thread.started.disconnect(self._worker.run)
+            except RuntimeError:
+                pass
+            try:
+                self._worker.progress.disconnect(self.progress.emit)
+                self._worker.finished.disconnect(self._on_worker_finished)
+                self._worker.error.disconnect(self.error.emit)
+            except RuntimeError:
+                pass
+
         if self._thread:
             self._thread.quit()
             self._thread.wait()
             self._thread = None
+
         if self._worker:
             self._worker.deleteLater()
             self._worker = None
 
-        # Safely disconnect external listeners
-        try:
-            self.progress.disconnect()
-            self.finished.disconnect()
-            self.error.disconnect()
-        except:
-            pass
+        if self._progress_callback:
+            try:
+                self.progress.disconnect(self._progress_callback)
+            except RuntimeError:
+                pass
+            self._progress_callback = None
+        if self._finished_callback:
+            try:
+                self.finished.disconnect(self._finished_callback)
+            except RuntimeError:
+                pass
+            self._finished_callback = None
+        if self._error_callback:
+            try:
+                self.error.disconnect(self._error_callback)
+            except RuntimeError:
+                pass
+            self._error_callback = None
 
     def stop_scan(self):
         if self._worker:
